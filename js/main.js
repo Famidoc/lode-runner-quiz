@@ -11,6 +11,15 @@ import { MazeRenderer } from './renderer.js';
 import { QuizModalController } from './quizModal.js';
 import { generateFallbackSolvedBoard } from './sudokuEngine.js';
 
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 class GameApp {
   constructor() {
     this.canvas = document.getElementById('game-canvas');
@@ -223,6 +232,9 @@ class GameApp {
     const q = this.levelRunQuestions;
     const plantLink = `${ECOSYSTEM.PLANTS_SITE_URL}?plant=${encodeURIComponent(q.plant.target.name)}`;
     const medUrl = q.medical.videoUrl || ECOSYSTEM.YOUTUBE_SEARCH_URL;
+    const medLinkLabel = q.medical.videoTitle
+      ? `📺 觀看：${escapeHtml(q.medical.videoTitle)} →`
+      : '📺 前往《加減學學》頻道 →';
 
     reviewEl.innerHTML = `
       <div class="review-card plant">
@@ -238,7 +250,7 @@ class GameApp {
       <div class="review-card medical">
         <div class="review-label">🩺 加減學學家醫觀念</div>
         <div class="review-main">${q.medical.explanation}</div>
-        <a href="${medUrl}" target="_blank" rel="noopener" class="review-link">📺 前往《加減學學》頻道 →</a>
+        <a href="${escapeHtml(medUrl)}" target="_blank" rel="noopener" class="review-link">${medLinkLabel}</a>
       </div>
     `;
 

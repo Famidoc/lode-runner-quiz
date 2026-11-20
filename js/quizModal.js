@@ -13,6 +13,15 @@ import {
 } from './sudokuEngine.js';
 import { audio } from './audio.js';
 
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export class QuizModalController {
   constructor() {
     this.overlayEl = document.getElementById('quiz-modal');
@@ -433,27 +442,39 @@ export class QuizModalController {
         ? '✅ 觀念正確！'
         : '❌ 再想想看喔！';
 
+    const videoLabel = medItem.videoTitle
+      ? `📺 ${escapeHtml(medItem.videoTitle)}`
+      : '📺 觀看《加減學學》解說';
+
     expEl.innerHTML = `
       <div class="med-exp-head">${statusLine}</div>
       <p class="med-exp-text">${medItem.explanation}</p>
       <div class="med-exp-actions">
         ${
           medItem.videoUrl
-            ? `<a href="${medItem.videoUrl}" target="_blank" rel="noopener" class="btn-video-link">📺 觀看《加減學學》解說</a>`
+            ? `<a href="${escapeHtml(medItem.videoUrl)}" target="_blank" rel="noopener" class="btn-video-link" id="btn-med-video" title="前往 YouTube 觀看完整解說">${videoLabel}</a>`
             : ''
         }
         <button type="button" class="btn-continue-maze" id="btn-med-continue">繼續尋寶 →</button>
       </div>
     `;
 
+    const videoLinkEl = document.getElementById('btn-med-video');
+    if (videoLinkEl) {
+      videoLinkEl.addEventListener('click', () => {
+        clearTimeout(this.autoCloseTimer);
+      });
+    }
+
     document.getElementById('btn-med-continue').addEventListener('click', () => {
       clearTimeout(this.autoCloseTimer);
       this._finishNow(isCorrect);
     });
 
+    const autoDelayMs = medItem.videoUrl ? 4500 : 2400;
     this.autoCloseTimer = setTimeout(() => {
       this._finishNow(isCorrect);
-    }, 2400);
+    }, autoDelayMs);
   }
 
   // ==========================================================

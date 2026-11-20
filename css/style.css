@@ -800,6 +800,8 @@ html, body {
 
 .med-exp-actions {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 10px;
@@ -819,9 +821,15 @@ html, body {
 .btn-continue-maze {
   background: #0284c7;
   color: #fff;
+  flex-shrink: 0;
 }
 
 .btn-video-link {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  line-height: 1.35;
+  text-align: left;
   background: #dc2626;
   color: #fff;
 }
@@ -950,6 +958,8 @@ html, body {
   color: var(--accent-sky);
   text-decoration: none;
   font-weight: 600;
+  line-height: 1.4;
+  word-break: break-word;
 }
 
 .hidden {
