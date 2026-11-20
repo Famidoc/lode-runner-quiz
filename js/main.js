@@ -231,6 +231,13 @@ class GameApp {
     const reviewEl = document.getElementById('clear-review-list');
     const q = this.levelRunQuestions;
     const plantLink = `${ECOSYSTEM.PLANTS_SITE_URL}?plant=${encodeURIComponent(q.plant.target.name)}`;
+    const sudokuTargetId = q.sudoku.puzzle.cloudId || q.sudoku.puzzle.cloudDocId || '';
+    const sudokuLink = sudokuTargetId
+      ? `${ECOSYSTEM.SUDOKU_SITE_URL}?id=${encodeURIComponent(sudokuTargetId)}`
+      : ECOSYSTEM.SUDOKU_SITE_URL;
+    const sudokuIdTag = q.sudoku.puzzle.cloudId
+      ? `題號 #${String(q.sudoku.puzzle.cloudId).padStart(4, '0')}・`
+      : '';
     const medUrl = q.medical.videoUrl || ECOSYSTEM.YOUTUBE_SEARCH_URL;
     const medLinkLabel = q.medical.videoTitle
       ? `📺 觀看：${escapeHtml(q.medical.videoTitle)} →`
@@ -244,8 +251,8 @@ class GameApp {
       </div>
       <div class="review-card sudoku">
         <div class="review-label">🔢 數獨共享平台</div>
-        <div class="review-main"><strong>${q.sudoku.puzzle.name}</strong>（${q.sudoku.holes} 格殘局挑戰）</div>
-        <a href="${ECOSYSTEM.SUDOKU_SITE_URL}" target="_blank" rel="noopener" class="review-link">前往挑戰完整數獨 →</a>
+        <div class="review-main"><strong>${escapeHtml(q.sudoku.puzzle.name)}</strong>（${sudokuIdTag}${q.sudoku.holes} 格殘局挑戰）</div>
+        <a href="${escapeHtml(sudokuLink)}" target="_blank" rel="noopener" class="review-link">前往挑戰完整數獨${q.sudoku.puzzle.cloudId ? ` (#${String(q.sudoku.puzzle.cloudId).padStart(4, '0')})` : ''} →</a>
       </div>
       <div class="review-card medical">
         <div class="review-label">🩺 加減學學家醫觀念</div>

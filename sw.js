@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lr-quiz-v4';
+const CACHE_NAME = 'lr-quiz-v5';
 
 const APP_SHELL = [
   './',

@@ -14,6 +14,7 @@ const DATA_DIR = path.join(ROOT_DIR, 'data');
 
 const PLANTS_SOURCE = 'D:/antigravity/plants/js/data.js';
 const SUDOKU_SOURCE = 'D:/antigravity/Sudoku miner/puzzles.js';
+const SUDOKU_APP_SOURCE = 'D:/antigravity/Sudoku/sudoku.html';
 
 function ensureDir(dirPath) {
   if (!fs.existsSync(dirPath)) {
@@ -185,7 +186,109 @@ function solveSudoku(seedStr, maxSteps = 80000) {
   return validateSolvedBoard(solved) ? solved : null;
 }
 
-function extractSudoku() {
+async function fetchCloudSudokuMap() {
+  const existingPath = path.join(DATA_DIR, 'sudoku.json');
+  const fallbackMap = new Map();
+  if (fs.existsSync(existingPath)) {
+    try {
+      const prev = JSON.parse(fs.readFileSync(existingPath, 'utf8'));
+      for (const item of prev) {
+        if (item?.seed && (item.cloudId || item.cloudDocId)) {
+          fallbackMap.set(item.seed, {
+            cloudId: item.cloudId || '',
+            cloudDocId: item.cloudDocId || ''
+          });
+        }
+      }
+    } catch (_) {
+      // 忽略舊檔解析失敗
+    }
+  }
+
+  if (!fs.existsSync(SUDOKU_APP_SOURCE)) {
+    console.warn(`⚠️ 找不到數獨共享平台原始檔（${SUDOKU_APP_SOURCE}），保留既有雲端題號。`);
+    return fallbackMap;
+  }
+
+  try {
+    const html = fs.readFileSync(SUDOKU_APP_SOURCE, 'utf8');
+    const apiKey = html.match(/apiKey:\s*"([^"]+)"/)?.[1];
+    const projectId = html.match(/projectId:\s*"([^"]+)"/)?.[1];
+    const appId =
+      html.match(/typeof __app_id !== 'undefined'\s*\?\s*__app_id\s*:\s*'([^']+)'/)?.[1] ||
+      'sudoku-hub-1';
+
+    if (!apiKey || !projectId) {
+      console.warn('⚠️ 無法解析數獨共享平台 Firebase 設定，保留既有雲端題號。');
+      return fallbackMap;
+    }
+
+    const authRes = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ returnSecureToken: true })
+      }
+    );
+    const authData = await authRes.json();
+    const idToken = authData.idToken;
+    if (!idToken) {
+      throw new Error(authData?.error?.message || '匿名登入取得 token 失敗');
+    }
+
+    const docs = [];
+    let pageToken = '';
+    do {
+      const url =
+        `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}` +
+        `/databases/(default)/documents/artifacts/${encodeURIComponent(appId)}/public/data/puzzles` +
+        `?pageSize=300${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${idToken}` }
+      });
+      const data = await res.json();
+      if (data.error) {
+        throw new Error(data.error.message || '讀取 Firestore 題庫失敗');
+      }
+      if (Array.isArray(data.documents)) {
+        docs.push(...data.documents);
+      }
+      pageToken = data.nextPageToken || '';
+    } while (pageToken);
+
+    const parsed = docs.map((d) => {
+      const f = d.fields || {};
+      const docId = d.name.split('/').pop();
+      const ts = Number(f.timestamp?.integerValue || f.timestamp?.doubleValue || 0);
+      const origPid = f.puzzleId?.integerValue || f.puzzleId?.stringValue || '';
+      const board = f.board?.stringValue || '';
+      return { docId, ts, origPid, board };
+    });
+
+    parsed.sort((a, b) => a.ts - b.ts);
+    const cloudMap = new Map();
+    parsed.forEach((p, idx) => {
+      const puzzleId =
+        p.docId.startsWith('daily_') || String(p.origPid).startsWith('D')
+          ? String(p.origPid || p.docId)
+          : String(idx + 1);
+      if (p.board && !cloudMap.has(p.board)) {
+        cloudMap.set(p.board, {
+          cloudId: puzzleId,
+          cloudDocId: p.docId
+        });
+      }
+    });
+
+    return cloudMap;
+  } catch (err) {
+    console.warn(`⚠️ 連線比對數獨雲端題號失敗（${err.message}），退回保留既有雲端題號。`);
+    return fallbackMap;
+  }
+}
+
+function extractSudoku(cloudMap = new Map()) {
   if (!fs.existsSync(SUDOKU_SOURCE)) {
     throw new Error(`找不到數獨來源檔：${SUDOKU_SOURCE}`);
   }
@@ -207,12 +310,15 @@ function extractSudoku() {
     if (!solution || seenSolutions.has(solution)) continue;
     seenSolutions.add(solution);
 
+    const cloud = cloudMap.get(seed);
     verified.push({
       id: item.id || `sudoku-${verified.length + 1}`,
       name: item.name || `精選數獨 #${verified.length + 1}`,
       icon: item.icon || '🔢',
       seed,
-      solution
+      solution,
+      cloudId: cloud?.cloudId || '',
+      cloudDocId: cloud?.cloudDocId || ''
     });
 
     if (verified.length >= 80) break;
@@ -223,17 +329,25 @@ function extractSudoku() {
   return verified;
 }
 
-function main() {
+async function main() {
   ensureDir(DATA_DIR);
   const plants = extractPlants();
-  const sudokus = extractSudoku();
+  const cloudMap = await fetchCloudSudokuMap();
+  const sudokus = extractSudoku(cloudMap);
+  const matchedCloud = sudokus.filter((s) => Boolean(s.cloudId)).length;
+
   console.log(`✅ 萃取完成：`);
   console.log(`   - 花草題庫 (data/plants.json)：${plants.length} 種`);
-  console.log(`   - 數獨題庫 (data/sudoku.json)：${sudokus.length} 組已驗證盤面`);
+  console.log(
+    `   - 數獨題庫 (data/sudoku.json)：${sudokus.length} 組已驗證盤面（${matchedCloud} / ${sudokus.length} 已對應雲端題號）`
+  );
   if (plants.length < 20 || sudokus.length < 20) {
     console.error('❌ 萃取數量過少，請檢查來源檔案格式。');
     process.exit(1);
   }
 }
 
-main();
+main().catch((err) => {
+  console.error('❌ 萃取失敗：', err);
+  process.exit(1);
+});
