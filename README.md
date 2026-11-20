@@ -21,7 +21,7 @@ node scripts/extract_data.mjs
 會自動重新萃取並驗證 `data/plants.json` 與 `data/sudoku.json`。
 
 ### 2. 審閱【加減學學】家醫衛教題庫與補上 YouTube 連結
-請開啟 `data/medical.json`（目前內含 60 題，涵蓋運動生理、睡眠衛生、營養保健、食品安全、用藥安全、大腦與抗老、生活醫學、慢性病與急救，其中 43 題已自動串接《加減學學》YouTube 影片標題與連結），可直接修改題文、解析，或於各題的 `"videoTitle"` 與 `"videoUrl"` 欄位調整對應的 YouTube 影片資訊（玩家答題解析或過關回顧頁會直接顯示導流按鈕）。
+請開啟 `data/medical.json`（目前內含 60 題，全數 60 題皆已自動串接《加減學學》YouTube 影片標題與連結），可直接修改題文、解析，或於各題的 `"videoTitle"` 與 `"videoUrl"` 欄位調整對應的 YouTube 影片資訊（玩家答題解析或過關回顧頁會直接顯示導流按鈕）。
 
 ### 3. 驗證關卡可達性
 ```bash
