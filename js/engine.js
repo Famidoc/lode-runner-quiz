@@ -192,6 +192,33 @@ export class LodeRunnerEngine {
     return t === TILE.LADDER || (this.exitActive && t === TILE.EXIT_LADDER);
   }
 
+  _isOnLadder(col, y) {
+    return (
+      this._isLadder(col, Math.floor(y + 0.01)) ||
+      this._isLadder(col, Math.ceil(y - 0.01))
+    );
+  }
+
+  _getLadderClimbUpMinY(col, y) {
+    const topRow = Math.floor(y + 0.01);
+    const botRow = Math.ceil(y - 0.01);
+    const highestLadderRow = this._isLadder(col, topRow) ? topRow : botRow;
+    if (!this._isLadder(col, highestLadderRow)) return y;
+
+    if (highestLadderRow === 0) return 0;
+    if (this._isSolid(col, highestLadderRow - 1)) return highestLadderRow;
+
+    if (this._isLadder(col, highestLadderRow - 1)) {
+      const nextAbove = highestLadderRow - 1;
+      if (nextAbove === 0) return 0;
+      if (this._isSolid(col, nextAbove - 1)) return nextAbove;
+      if (!this._isLadder(col, nextAbove - 1)) return nextAbove - 1;
+      return 0;
+    }
+
+    return highestLadderRow - 1;
+  }
+
   _isRope(c, r) {
     if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return false;
     return this.grid[r][c] === TILE.ROPE;
@@ -386,7 +413,8 @@ export class LodeRunnerEngine {
 
     const col = Math.round(p.x);
     const row = Math.round(p.y);
-    const onLadder = this._isLadder(col, row);
+    const onLadderTile = this._isLadder(col, row);
+    const inLadder = this._isOnLadder(col, p.y);
     const ladderBelow = this._isLadder(col, row + 1);
     const onRopeTile = this._isRope(col, row);
     const hangingOnRope =
@@ -402,7 +430,7 @@ export class LodeRunnerEngine {
     const wantsRight = this.input.right;
 
     // 1. 半空中未獲支撐且未攀爬：強制自由落體
-    if (!onLadder && !hangingOnRope && !grounded) {
+    if (!inLadder && !hangingOnRope && !grounded) {
       p.action = 'fall';
       p.x += (col - p.x) * Math.min(1, dt * 10);
       const nextY = p.y + PHYSICS.FALL_SPEED * dt;
@@ -428,18 +456,10 @@ export class LodeRunnerEngine {
       return;
     }
 
-    // 3. 攀爬梯子（支援水平自動對齊容錯）
-    const canClimbUp =
-      wantsUp &&
-      (onLadder ||
-        (this._isLadder(Math.round(p.x), row) &&
-          Math.abs(p.x - Math.round(p.x)) <= PHYSICS.LADDER_SNAP_TOLERANCE));
-    const canClimbDown =
-      wantsDown &&
-      (onLadder ||
-        ladderBelow ||
-        (this._isLadder(Math.round(p.x), row + 1) &&
-          Math.abs(p.x - Math.round(p.x)) <= PHYSICS.LADDER_SNAP_TOLERANCE));
+    // 3. 攀爬梯子（支援水平自動對齊容錯與順暢登頂）
+    const climbUpMinY = inLadder ? this._getLadderClimbUpMinY(col, p.y) : p.y;
+    const canClimbUp = wantsUp && inLadder && p.y > climbUpMinY + 0.001;
+    const canClimbDown = wantsDown && (inLadder || ladderBelow);
 
     if (canClimbUp || canClimbDown) {
       const targetCol = Math.round(p.x);
@@ -447,21 +467,18 @@ export class LodeRunnerEngine {
 
       if (canClimbUp) {
         const nextY = p.y - PHYSICS.CLIMB_SPEED * dt;
-        const headRow = Math.floor(nextY);
         // 到達頂端且出口已啟用
         if (this.exitActive && this._tileAt(targetCol, 0) === TILE.EXIT_LADDER && nextY <= 0.12) {
           p.y = 0;
           this._triggerLevelClear();
           return;
         }
-        if (nextY >= 0 && !this._isSolid(targetCol, headRow)) {
-          // 確保仍在梯子上或爬上梯頂平台
-          if (this._isLadder(targetCol, Math.ceil(nextY)) || this._isLadder(targetCol, row)) {
-            p.y = nextY;
-            p.action = 'climb';
-            p.animPhase += dt * 10;
-            this._tickStepSound(dt);
-          }
+        const clampedY = Math.max(climbUpMinY, nextY);
+        if (clampedY < p.y) {
+          p.y = clampedY;
+          p.action = 'climb';
+          p.animPhase += dt * 10;
+          this._tickStepSound(dt);
         }
       } else if (canClimbDown) {
         const nextY = p.y + PHYSICS.CLIMB_SPEED * dt;
@@ -485,7 +502,7 @@ export class LodeRunnerEngine {
     // 4. 水平移動（地上、鋼索、或在梯子上橫向離開）
     if (hangingOnRope) {
       p.y += (row - p.y) * Math.min(1, dt * 16);
-    } else if (grounded && !onLadder) {
+    } else if (grounded && !inLadder) {
       p.y = row;
     }
 
@@ -493,8 +510,9 @@ export class LodeRunnerEngine {
     if (dirX !== 0) {
       p.facing = dirX;
       // 若在梯子中間橫移，先稍微垂直對齊當前格列以確保走進通道
-      if (onLadder && Math.abs(p.y - row) <= 0.35) {
-        p.y += (row - p.y) * Math.min(1, dt * 14);
+      if (inLadder && Math.abs(p.y - row) <= 0.42) {
+        const snapY = p.y + (row - p.y) * Math.min(1, dt * 14);
+        p.y = Math.abs(row - snapY) <= 0.04 ? row : snapY;
       }
 
       const step = dirX * PHYSICS.PLAYER_SPEED * dt;
@@ -502,7 +520,17 @@ export class LodeRunnerEngine {
       const edgeCol = dirX > 0 ? Math.ceil(nextX - 0.15) : Math.floor(nextX + 0.15);
       const curRow = Math.round(p.y);
 
-      if (!this._isSolid(edgeCol, curRow)) {
+      if (
+        inLadder &&
+        !onLadderTile &&
+        p.y > row + 0.12 &&
+        !this._isSolid(edgeCol, row) &&
+        this._isSolid(edgeCol, row + 1)
+      ) {
+        p.y = Math.max(row, p.y - PHYSICS.CLIMB_SPEED * dt);
+        p.action = 'climb';
+        p.animPhase += dt * 10;
+      } else if (!this._isSolid(edgeCol, curRow)) {
         p.x = nextX;
         p.animPhase += dt * 12;
         p.action = hangingOnRope ? 'rope' : 'run';
@@ -511,7 +539,7 @@ export class LodeRunnerEngine {
         p.x = dirX > 0 ? Math.min(p.x, edgeCol - 1) : Math.max(p.x, edgeCol + 1);
       }
     } else if (p.digAnimTimer <= 0) {
-      p.action = hangingOnRope ? 'rope' : onLadder ? 'climb' : 'idle';
+      p.action = hangingOnRope ? 'rope' : inLadder ? 'climb' : 'idle';
     }
 
     // 檢查是否已經抵達已啟用的隱藏過關梯子頂端
@@ -610,8 +638,9 @@ export class LodeRunnerEngine {
         continue;
       }
 
-      const onLadder = this._isLadder(gc, gr);
-      const onRope = this._isRope(gc, gr);
+      const onLadderTile = this._isLadder(gc, gr);
+      const inLadder = this._isOnLadder(gc, g.y);
+      const onRope = this._isRope(gc, gr) && Math.abs(g.y - gr) <= 0.25;
       const belowSolid = this._isSolid(gc, gr + 1);
       const belowLadder = this._isLadder(gc, gr + 1);
       const belowTrapped = trappedCells.has(`${gc},${gr + 1}`);
@@ -619,7 +648,7 @@ export class LodeRunnerEngine {
         g.y >= gr - 0.08 && g.y <= gr + 0.1 && (belowSolid || belowLadder || belowTrapped);
 
       // 半空下落
-      if (!onLadder && !onRope && !grounded) {
+      if (!inLadder && !onRope && !grounded) {
         g.x += (gc - g.x) * Math.min(1, dt * 10);
         const nextY = g.y + PHYSICS.FALL_SPEED * dt;
         const destR = Math.floor(nextY);
@@ -650,24 +679,57 @@ export class LodeRunnerEngine {
         this.frenzyTimer > 0 ? PHYSICS.GHOST_FRENZY_SPEED : PHYSICS.GHOST_SPEED;
       const { dc, dr } = g.moveDir;
 
-      if (dr !== 0 && (onLadder || (dr > 0 && (belowLadder || onRope)))) {
+      if (dr < 0 && inLadder) {
+        g.x += (gc - g.x) * Math.min(1, dt * 12);
+        const minY = this._getLadderClimbUpMinY(gc, g.y);
+        const nextY = Math.max(minY, g.y + dr * speed * 0.85 * dt);
+        if (!this._isSolid(gc, Math.floor(nextY))) {
+          g.y = nextY;
+          g.animPhase += dt * 9;
+        }
+        if (g.y <= minY + 0.001) {
+          g.y = minY;
+          g.moveDir = computeNextStep(
+            this.grid,
+            this.dugHoles,
+            this.exitActive,
+            trappedCells,
+            Math.round(g.x),
+            Math.round(g.y),
+            pc,
+            pr
+          );
+        }
+      } else if (dr > 0 && (inLadder || belowLadder || onRope)) {
         g.x += (gc - g.x) * Math.min(1, dt * 12);
         const nextY = g.y + dr * speed * 0.85 * dt;
-        const checkR = dr > 0 ? Math.floor(nextY + 0.98) : Math.floor(nextY);
-        if (!this._isSolid(gc, checkR)) {
-          g.y = Math.max(0, Math.min(ROWS - 2, nextY));
+        const checkR = Math.floor(nextY + 0.98);
+        if (
+          checkR < ROWS &&
+          !this._isSolid(gc, checkR) &&
+          !trappedCells.has(`${gc},${checkR}`)
+        ) {
+          g.y = Math.min(ROWS - 2, nextY);
           g.animPhase += dt * 9;
+        } else {
+          g.y = Math.round(g.y);
         }
       } else if (dc !== 0) {
         g.facing = dc;
-        if (onRope || grounded || onLadder) {
-          g.y += (gr - g.y) * Math.min(1, dt * 12);
-        }
-        const nextX = Math.max(0, Math.min(COLS - 1, g.x + dc * speed * dt));
-        const edgeC = dc > 0 ? Math.ceil(nextX - 0.15) : Math.floor(nextX + 0.15);
-        if (!this._isSolid(edgeC, gr)) {
-          g.x = nextX;
-          g.animPhase += dt * 10;
+        if (inLadder && !onLadderTile && g.y > gr + 0.08) {
+          g.y = Math.max(gr, g.y - speed * 0.85 * dt);
+          g.animPhase += dt * 9;
+        } else {
+          if (onRope || grounded || inLadder) {
+            const snapY = g.y + (gr - g.y) * Math.min(1, dt * 12);
+            g.y = Math.abs(gr - snapY) <= 0.04 ? gr : snapY;
+          }
+          const nextX = Math.max(0, Math.min(COLS - 1, g.x + dc * speed * dt));
+          const edgeC = dc > 0 ? Math.ceil(nextX - 0.15) : Math.floor(nextX + 0.15);
+          if (!this._isSolid(edgeC, gr)) {
+            g.x = nextX;
+            g.animPhase += dt * 10;
+          }
         }
       }
     }
