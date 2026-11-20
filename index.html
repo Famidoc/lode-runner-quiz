@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>知識尋寶《Lode Runner》— 捻花惹草 × 數獨 × 加減學學</title>
+  <meta name="description" content="結合經典淘金者 Lode Runner 動作益智玩法與捻花惹草、數獨共享平台、加減學學三大知識題點的 PWA 網頁遊戲。" />
+  <meta name="theme-color" content="#09111f" />
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="./assets/icons/icon.svg" />
+  <link rel="apple-touch-icon" href="./assets/icons/icon.svg" />
+  <link rel="stylesheet" href="./css/style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- 頂部 HUD 與系統按鈕 -->
+    <header class="hud-header">
+      <div class="brand-cluster">
+        <span class="brand-badge">LODE RUNNER</span>
+        <h1 class="brand-title">知識尋寶《淘金者》</h1>
+      </div>
+
+      <div class="hud-stats">
+        <div class="stat-pill"><span class="stat-lbl">關卡</span><strong id="hud-level">第 1 關</strong></div>
+        <div class="stat-pill"><span class="stat-lbl">分數</span><strong id="hud-score">0</strong></div>
+        <div class="stat-pill"><span class="stat-lbl">最高</span><strong id="hud-best">0</strong></div>
+        <div class="stat-pill"><span class="stat-lbl">時間</span><strong id="hud-time">0s</strong></div>
+        <div class="stat-pill lives"><strong id="hud-lives">❤️❤️❤️</strong></div>
+      </div>
+
+      <div class="hud-actions">
+        <button type="button" class="tool-btn" id="btn-levels" title="選擇關卡">🗺️ 關卡</button>
+        <button type="button" class="tool-btn" id="btn-pause" title="暫停 (P)">⏸ 暫停</button>
+        <button type="button" class="tool-btn" id="btn-retry" title="重試本關 (R)">🔄 重試</button>
+        <button type="button" class="tool-btn" id="btn-mute" title="切換音效">🔊 音效</button>
+      </div>
+    </header>
+
+    <!-- 知識寶箱收集進度列 -->
+    <section class="quest-bar" aria-label="本關知識寶箱狀態">
+      <div class="chest-pills">
+        <span class="chest-pill plant" id="hud-chest-plant">🌿 捻花惹草</span>
+        <span class="chest-pill sudoku" id="hud-chest-sudoku">🔢 數獨殘局</span>
+        <span class="chest-pill medical" id="hud-chest-medical">🩺 加減學學</span>
+      </div>
+      <div class="hud-status" id="hud-portal">📦 寶箱 0 / 3</div>
+    </section>
+
+    <!-- 主遊戲 2.5D Canvas 畫布區 -->
+    <main class="stage-wrap">
+      <canvas id="game-canvas" width="960" height="576" aria-label="知識尋寶遊戲畫面"></canvas>
+    </main>
+
+    <!-- 手機觸控虛擬搖桿與挖洞操作面板 -->
+    <section class="touch-controls" aria-label="虛擬觸控按鍵">
+      <div class="dpad" role="group" aria-label="方向控制">
+        <button type="button" class="dpad-btn up" data-move="up" aria-label="上爬">▲</button>
+        <button type="button" class="dpad-btn left" data-move="left" aria-label="向左">◀</button>
+        <button type="button" class="dpad-btn down" data-move="down" aria-label="向下">▼</button>
+        <button type="button" class="dpad-btn right" data-move="right" aria-label="向右">▶</button>
+      </div>
+
+      <div class="kb-hint">
+        <span>⌨️ <strong>方向鍵 / WASD</strong> 移動與爬梯</span>
+        <span>⛏️ <strong>Z / Q</strong> 左挖洞・<strong>X / E</strong> 右挖洞</span>
+        <span>⏸ <strong>P</strong> 暫停・<strong>R</strong> 重試</span>
+      </div>
+
+      <div class="dig-pad" role="group" aria-label="左右挖洞">
+        <button type="button" class="dig-btn left-dig" id="btn-dig-left">
+          <span class="dig-icon">↙️</span>
+          <span>左挖 <small>(Z)</small></span>
+        </button>
+        <button type="button" class="dig-btn right-dig" id="btn-dig-right">
+          <span class="dig-icon">↘️</span>
+          <span>右挖 <small>(X)</small></span>
+        </button>
+      </div>
+    </section>
+
+    <!-- 頁尾創作者署名與生態串連 -->
+    <footer class="app-footer">
+      <div class="footer-credit">@2026 by Famidoc Chang &amp; Antigravity</div>
+      <nav class="footer-links" aria-label="相關專案平台">
+        <a href="https://famidoc.github.io/plants/" target="_blank" rel="noopener">🌿 捻花惹草圖鑑</a>
+        <span>·</span>
+        <a href="https://famidoc.github.io/sudoku/sudoku.html" target="_blank" rel="noopener">🔢 數獨共享平台</a>
+        <span>·</span>
+        <a href="https://www.youtube.com/results?search_query=%E5%8A%A0%E6%B8%9B%E5%AD%B8%E5%AD%B8+%E5%BC%B5%E6%96%87%E8%8F%AF" target="_blank" rel="noopener">📺 加減學學頻道</a>
+      </nav>
+    </footer>
+  </div>
+
+  <!-- 1. 開局歡迎與規則導覽彈窗 -->
+  <div class="modal-backdrop hidden" id="start-modal">
+    <div class="modal-card start-card">
+      <div class="modal-eyebrow">1980s 經典復刻 × 三大知識融合</div>
+      <h2>知識尋寶《Lode Runner》</h2>
+      <p class="start-desc">
+        在多層迷宮中閃避守衛、挖洞設陷阱，並解鎖三個發光知識寶箱，開啟頂層過關天梯！
+      </p>
+      <div class="start-trio">
+        <div class="trio-item plant"><strong>🌿 捻花惹草</strong><span>15 秒看圖四選一</span></div>
+        <div class="trio-item sudoku"><strong>🔢 數獨共享</strong><span>45 秒殘局關鍵填空</span></div>
+        <div class="trio-item medical"><strong>🩺 加減學學</strong><span>15 秒家醫健康快問答</span></div>
+      </div>
+      <div class="start-rules">
+        <p>• 觸碰寶箱時時間將自動凍結；答對獲得 <strong>1.8 秒無敵閃爍</strong> 脫離險境。</p>
+        <p>• 答錯或超時會鎖定寶箱 5 秒，守衛將進入 <strong>5 秒加速追擊</strong>！</p>
+        <p>• 挖開磚塊 5 秒後復原；鬼掉進洞中會被困 3 秒，可從鬼頭上安全踩過。</p>
+      </div>
+      <p class="loading-tip" id="start-loading-tip">正在準備知識題庫…</p>
+      <div class="modal-btn-row">
+        <button type="button" class="btn-primary" id="btn-start-play">▶ 開始冒險</button>
+        <button type="button" class="btn-secondary" id="btn-open-levels-from-start">🗺️ 選擇關卡</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. 知識凍結答題彈窗 -->
+  <div class="modal-backdrop hidden" id="quiz-modal">
+    <div class="modal-card quiz-card">
+      <div class="quiz-header">
+        <span class="quiz-badge" id="quiz-badge">知識挑戰</span>
+        <h2 class="quiz-title" id="quiz-title">知識寶箱</h2>
+        <div class="quiz-timer-num" id="quiz-timer-text">15s</div>
+      </div>
+      <div class="quiz-timer-track">
+        <div class="quiz-timer-bar" id="quiz-timer-bar"></div>
+      </div>
+      <div class="quiz-body" id="quiz-body"></div>
+    </div>
+  </div>
+
+  <!-- 3. 選關彈窗 -->
+  <div class="modal-backdrop hidden" id="levels-modal">
+    <div class="modal-card levels-card">
+      <div class="modal-head-row">
+        <h2>🗺️ 選擇挑戰關卡</h2>
+        <button type="button" class="btn-close-x" id="btn-close-levels">✕</button>
+      </div>
+      <div class="level-select-grid" id="level-select-grid"></div>
+    </div>
+  </div>
+
+  <!-- 4. 過關結算與三大知識回顧彈窗 -->
+  <div class="modal-backdrop hidden" id="clear-modal">
+    <div class="modal-card clear-card">
+      <h2 id="clear-title">🎉 過關成功！</h2>
+      <p class="clear-sub" id="clear-subtitle"></p>
+      <div class="clear-stats-row">
+        <div class="clear-stat"><span>總分</span><strong id="clear-score">0</strong></div>
+        <div class="clear-stat"><span>耗時</span><strong id="clear-time">0s</strong></div>
+        <div class="clear-stat"><span>剩餘生命</span><strong id="clear-lives">3 / 3</strong></div>
+      </div>
+      <h3 class="review-heading">📚 本關知識尋寶回顧</h3>
+      <div class="clear-review-list" id="clear-review-list"></div>
+      <div class="modal-btn-row">
+        <button type="button" class="btn-primary" id="btn-next-level">▶ 進入下一關</button>
+        <button type="button" class="btn-secondary" id="btn-replay-level">🔄 重玩本關</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. 失敗重試彈窗 -->
+  <div class="modal-backdrop hidden" id="gameover-modal">
+    <div class="modal-card gameover-card">
+      <h2>💀 探險失敗</h2>
+      <p id="gameover-reason">你被守衛抓到了！</p>
+      <div class="clear-stats-row">
+        <div class="clear-stat"><span>本局分數</span><strong id="gameover-score">0</strong></div>
+        <div class="clear-stat"><span>歷史最高</span><strong id="gameover-best">0</strong></div>
+      </div>
+      <div class="modal-btn-row">
+        <button type="button" class="btn-primary" id="btn-gameover-retry">🔄 再戰本關</button>
+        <button type="button" class="btn-secondary" id="btn-gameover-levels">🗺️ 選擇關卡</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>

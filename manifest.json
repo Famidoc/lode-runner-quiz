@@ -1,0 +1,17 @@
+{
+  "name": "知識尋寶《Lode Runner》",
+  "short_name": "知識淘金者",
+  "description": "致敬 1980s Lode Runner，結合捻花惹草、數獨共享平台與加減學學三大知識題點的動作益智 PWA。",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#060b14",
+  "theme_color": "#09111f",
+  "icons": [
+    {
+      "src": "./assets/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
