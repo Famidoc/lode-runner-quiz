@@ -976,6 +976,25 @@ html, body {
   max-width: 660px;
 }
 
+.levels-career-bar {
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(250, 204, 21, 0.28);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 0.84rem;
+  color: #cbd5e1;
+  margin-bottom: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.levels-career-bar strong {
+  color: var(--accent-gold);
+}
+
 .level-select-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -1023,12 +1042,12 @@ html, body {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
-.gameover-card .clear-stats-row {
+.clear-stats-row.clear-stats-grid-4 {
   grid-template-columns: repeat(2, 1fr);
-  margin-top: 12px;
+  margin-top: 10px;
 }
 
 .clear-stat {
@@ -1038,16 +1057,33 @@ html, body {
   text-align: center;
   display: flex;
   flex-direction: column;
+  gap: 2px;
 }
 
 .clear-stat span {
-  font-size: 0.76rem;
+  font-size: 0.74rem;
   color: var(--text-muted);
 }
 
 .clear-stat strong {
-  font-size: 1.15rem;
+  font-size: clamp(0.92rem, 2.8vw, 1.1rem);
   color: var(--accent-gold);
+  line-height: 1.3;
+}
+
+.clear-bonus-strip {
+  background: rgba(14, 165, 233, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  border-radius: 10px;
+  padding: 7px 11px;
+  font-size: 0.8rem;
+  color: #e2e8f0;
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+
+.clear-bonus-strip strong {
+  color: #fde047;
 }
 
 .review-heading {
@@ -1206,18 +1242,25 @@ html, body {
   color: #cbd5e1;
 }
 
+.lb-rule-note {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  margin-bottom: 8px;
+  line-height: 1.45;
+}
+
 .lb-my-summary {
   background: rgba(2, 6, 23, 0.45);
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 10px;
   padding: 8px 12px;
-  font-size: 0.84rem;
+  font-size: 0.82rem;
   color: #cbd5e1;
   margin-bottom: 10px;
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
-  gap: 6px;
+  gap: 4px 12px;
 }
 
 .lb-my-summary strong {
@@ -1295,11 +1338,24 @@ html, body {
   color: var(--text-muted);
 }
 
+.lb-score-col {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
 .lb-score-val {
   font-family: monospace;
   font-size: 1.05rem;
   font-weight: 800;
   color: var(--accent-gold);
+  line-height: 1.15;
+}
+
+.lb-score-sub {
+  font-size: 0.72rem;
+  color: #94a3b8;
 }
 
 /* QR Code 掃碼彈窗 */

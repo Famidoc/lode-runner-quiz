@@ -23,7 +23,10 @@ export class LodeRunnerEngine {
     this.grid = [];
     this.lives = PHYSICS.MAX_LIVES;
     this.score = 0;
+    this.levelScore = 0;
     this.elapsedSec = 0;
+    this.runElapsedBaseSec = 0;
+    this.runStartLevel = 1;
 
     this.player = null;
     this.ghosts = [];
@@ -51,12 +54,23 @@ export class LodeRunnerEngine {
     };
   }
 
+  _addScore(points) {
+    const delta = Math.max(0, Math.round(Number(points) || 0));
+    this.score += delta;
+    this.levelScore += delta;
+  }
+
   loadLevel(levelData, { preserveScore = false, waitForStart = true } = {}) {
     this.level = levelData;
     this.grid = levelData.grid.map((row) => row.slice());
-    if (!preserveScore) {
+    if (preserveScore) {
+      this.runElapsedBaseSec += this.elapsedSec;
+    } else {
       this.score = 0;
+      this.runElapsedBaseSec = 0;
+      this.runStartLevel = levelData.id;
     }
+    this.levelScore = 0;
     this.lives = PHYSICS.MAX_LIVES;
     this.elapsedSec = 0;
     this.exitActive = false;
@@ -184,7 +198,10 @@ export class LodeRunnerEngine {
       levelName: this.level?.name || '',
       lives: this.lives,
       score: this.score,
+      levelScore: this.levelScore,
       elapsedSec: this.elapsedSec,
+      runElapsedSec: this.runElapsedBaseSec + this.elapsedSec,
+      runStartLevel: this.runStartLevel,
       exitActive: this.exitActive,
       frenzyTimer: this.frenzyTimer,
       readyTitle: this.readyTitle,
@@ -404,7 +421,7 @@ export class LodeRunnerEngine {
   }
 
   _crushAndRespawnGhost(ghost) {
-    this.score += SCORE.GHOST_CRUSH;
+    this._addScore(SCORE.GHOST_CRUSH);
     audio.play('crush');
     this._spawnParticles(ghost.x + 0.5, ghost.y + 0.5, '#a855f7', 16, 4.0);
     this._spawnFloatingText(ghost.x + 0.5, ghost.y, `+${SCORE.GHOST_CRUSH}`, '#e879f9');
@@ -810,7 +827,7 @@ export class LodeRunnerEngine {
       chest.collected = true;
       chest.cooldown = 0;
       const bonus = SCORE.CHEST_CORRECT + Math.max(0, Math.round(timeLeft)) * SCORE.TIME_BONUS_MULT;
-      this.score += bonus;
+      this._addScore(bonus);
       this.player.invincibleTimer = PHYSICS.INVINCIBLE_SEC;
 
       audio.play('correct');
@@ -866,7 +883,11 @@ export class LodeRunnerEngine {
       if (typeof this.callbacks.onGameOver === 'function') {
         this.callbacks.onGameOver({
           score: this.score,
+          levelScore: this.levelScore,
           levelId: this.level.id,
+          elapsedSec: Math.round(this.elapsedSec),
+          runElapsedSec: Math.round(this.runElapsedBaseSec + this.elapsedSec),
+          runStartLevel: this.runStartLevel,
           reason
         });
       }
@@ -890,8 +911,9 @@ export class LodeRunnerEngine {
     this.clearInputs();
 
     const parBonus = Math.max(0, Math.round((this.level.parTime - this.elapsedSec) * SCORE.PAR_TIME_BONUS_MULT));
-    const totalBonus = SCORE.LEVEL_CLEAR_BASE + parBonus;
-    this.score += totalBonus;
+    const lifeBonus = Math.max(0, this.lives) * SCORE.LIFE_BONUS;
+    const totalBonus = SCORE.LEVEL_CLEAR_BASE + parBonus + lifeBonus;
+    this._addScore(totalBonus);
 
     audio.play('levelClear');
     this._emitHud();
@@ -901,8 +923,13 @@ export class LodeRunnerEngine {
         levelId: this.level.id,
         levelName: this.level.name,
         score: this.score,
+        levelScore: this.levelScore,
         levelBonus: totalBonus,
+        parBonus,
+        lifeBonus,
         elapsedSec: Math.round(this.elapsedSec),
+        runElapsedSec: Math.round(this.runElapsedBaseSec + this.elapsedSec),
+        runStartLevel: this.runStartLevel,
         livesLeft: this.lives
       });
     }

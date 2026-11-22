@@ -93,7 +93,8 @@ export const SCORE = Object.freeze({
   TIME_BONUS_MULT: 10,
   GHOST_CRUSH: 150,
   LEVEL_CLEAR_BASE: 500,
-  PAR_TIME_BONUS_MULT: 5
+  PAR_TIME_BONUS_MULT: 5,
+  LIFE_BONUS: 200
 });
 
 // 外部生態網站與預留 GAS / API 串接點

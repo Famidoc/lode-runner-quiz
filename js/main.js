@@ -22,6 +22,14 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
+function formatDuration(sec) {
+  const s = Math.max(0, Math.round(Number(sec) || 0));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}分${String(r).padStart(2, '0')}秒`;
+}
+
 class GameApp {
   constructor() {
     this.canvas = document.getElementById('game-canvas');
@@ -220,16 +228,18 @@ class GameApp {
   }
 
   _handleLevelClear(summary) {
+    const totalLevels = this.gameData.levels.length;
     this.saveData = storage.recordLevelClear({
       levelId: summary.levelId,
       score: summary.score,
+      levelScore: summary.levelScore,
       elapsedSec: summary.elapsedSec,
-      totalLevels: this.gameData.levels.length
+      totalLevels
     });
     this._updateHighScoreUI();
     this._renderLevelSelectGrid();
 
-    const totalLevels = this.gameData.levels.length;
+    const career = storage.getCareerSummary(this.saveData);
     const isFinal = this.currentLevelIdx >= totalLevels - 1;
 
     const modal = document.getElementById('clear-modal');
@@ -238,8 +248,21 @@ class GameApp {
       : `🎉 第 ${summary.levelId} 關過關！`;
     document.getElementById('clear-subtitle').textContent = summary.levelName;
     document.getElementById('clear-score').textContent = String(summary.score);
-    document.getElementById('clear-time').textContent = `${summary.elapsedSec} 秒`;
-    document.getElementById('clear-lives').textContent = `${summary.livesLeft} / 3`;
+    document.getElementById('clear-level-score').textContent = String(summary.levelScore ?? summary.score);
+    document.getElementById('clear-time').textContent =
+      summary.runElapsedSec && summary.runElapsedSec !== summary.elapsedSec
+        ? `${formatDuration(summary.elapsedSec)} / 整趟 ${formatDuration(summary.runElapsedSec)}`
+        : formatDuration(summary.elapsedSec);
+    document.getElementById('clear-lives').textContent =
+      `${'❤️'.repeat(Math.max(0, summary.livesLeft))} (+${summary.lifeBonus ?? 0}分)`;
+
+    const bonusStrip = document.getElementById('clear-bonus-strip');
+    if (bonusStrip) {
+      bonusStrip.innerHTML = `
+        <div>🎁 過關 +500・速通 +${summary.parBonus ?? 0}・愛心 +${summary.lifeBonus ?? 0}</div>
+        <div>🏅 ${totalLevels} 關累計總積分：<strong>${career.careerScore} 分</strong>（已計 ${career.scoredLevelsCount} / ${totalLevels} 關）</div>
+      `;
+    }
 
     // 渲染本關遇到的三大知識回顧與生態連結卡片
     const reviewEl = document.getElementById('clear-review-list');
@@ -277,9 +300,13 @@ class GameApp {
 
     this._lastResultSummary = {
       score: summary.score,
+      levelScore: summary.levelScore ?? summary.score,
+      careerScore: career.careerScore,
       maxLevel: summary.levelId,
+      runStartLevel: summary.runStartLevel || summary.levelId,
       clearedAll: isFinal,
-      elapsedSec: summary.elapsedSec
+      elapsedSec: summary.elapsedSec,
+      runElapsedSec: summary.runElapsedSec ?? summary.elapsedSec
     };
     this._prepareLbSubmitBox('clear', summary.score > 0);
 
@@ -291,16 +318,29 @@ class GameApp {
 
   _handleGameOver(info) {
     this._syncHighScore();
+    const career = storage.getCareerSummary(this.saveData);
+    const singleElapsed = info.elapsedSec ?? Math.round(this.engine.elapsedSec || 0);
+    const runElapsed = info.runElapsedSec ?? Math.round((this.engine.runElapsedBaseSec || 0) + singleElapsed);
+
     const modal = document.getElementById('gameover-modal');
     document.getElementById('gameover-reason').textContent = info.reason || '生命耗盡！';
     document.getElementById('gameover-score').textContent = String(info.score);
+    document.getElementById('gameover-level-score').textContent = String(info.levelScore ?? this.engine.levelScore ?? 0);
+    document.getElementById('gameover-time').textContent =
+      runElapsed > singleElapsed
+        ? `${formatDuration(singleElapsed)} / 整趟 ${formatDuration(runElapsed)}`
+        : formatDuration(singleElapsed);
     document.getElementById('gameover-best').textContent = String(this.saveData.highScore);
 
     this._lastResultSummary = {
       score: info.score,
+      levelScore: info.levelScore ?? this.engine.levelScore ?? 0,
+      careerScore: career.careerScore,
       maxLevel: info.levelId || this.currentLevelIdx + 1,
+      runStartLevel: info.runStartLevel || this.engine.runStartLevel || this.currentLevelIdx + 1,
       clearedAll: false,
-      elapsedSec: Math.round(this.engine.elapsedSec || 0)
+      elapsedSec: singleElapsed,
+      runElapsedSec: runElapsed
     };
     this._prepareLbSubmitBox('gameover', info.score > 0);
 
@@ -368,6 +408,20 @@ class GameApp {
     if (!grid || !this.gameData) return;
     grid.innerHTML = '';
 
+    const total = this.gameData.levels.length;
+    const career = storage.getCareerSummary(this.saveData);
+    const careerBar = document.getElementById('levels-career-bar');
+    if (careerBar) {
+      const hint =
+        career.scoredLevelsCount === 0 && career.clearedLevelsCount > 0
+          ? '過關後自動開始累計各關單關最高分'
+          : `已登錄單關成績 ${career.scoredLevelsCount} / ${total} 關`;
+      careerBar.innerHTML = `
+        <span>🏅 ${total} 關累計總積分：<strong>${career.careerScore} 分</strong></span>
+        <span>${hint}</span>
+      `;
+    }
+
     this.gameData.levels.forEach((lvl, idx) => {
       const unlocked = lvl.id <= this.saveData.unlockedLevel;
       const rec = this.saveData.levelRecords[String(lvl.id)];
@@ -375,11 +429,19 @@ class GameApp {
       card.type = 'button';
       card.className = `level-card ${unlocked ? '' : 'locked'}`;
       card.disabled = !unlocked;
+      const bestLine = rec?.bestLevelScore
+        ? `單關最高 ${rec.bestLevelScore} 分 (${formatDuration(rec.bestTime)})`
+        : rec?.cleared
+          ? `已通關 (${formatDuration(rec.bestTime)})`
+          : unlocked
+            ? '點擊挑戰'
+            : '通關前一關解鎖';
+
       card.innerHTML = `
         <div class="level-card-num">第 ${lvl.id} 關 ${rec?.cleared ? '✅' : unlocked ? '' : '🔒'}</div>
         <div class="level-card-title">${lvl.name}</div>
         <div class="level-card-meta">守衛 ${lvl.ghosts.length} 名・數獨 ${lvl.sudokuHoles} 格</div>
-        <div class="level-card-best">${rec?.bestScore ? `最高 ${rec.bestScore} 分 (${rec.bestTime}s)` : unlocked ? '點擊挑戰' : '通關前一關解鎖'}</div>
+        <div class="level-card-best">${bestLine}</div>
       `;
       card.addEventListener('click', () => {
         audio.unlock();
@@ -572,9 +634,11 @@ class GameApp {
     }
     if (summaryEl) {
       const myName = this.saveData.playerName ? escapeHtml(this.saveData.playerName) : '尚未設定暱稱';
+      const career = storage.getCareerSummary(this.saveData);
       summaryEl.innerHTML = `
         <span>我的暱稱：<strong>${myName}</strong></span>
-        <span>歷史最高：<strong>${this.saveData.highScore || 0} 分</strong>（解鎖第 ${this.saveData.unlockedLevel || 1} / ${totalLevels} 關）</span>
+        <span>🔥 連續闖關最高：<strong>${this.saveData.highScore || 0} 分</strong></span>
+        <span>🏅 各關累計總積分：<strong>${career.careerScore} 分</strong>（解鎖 ${this.saveData.unlockedLevel || 1} / ${totalLevels} 關）</span>
       `;
     }
 
@@ -597,19 +661,32 @@ class GameApp {
         const rankIcon = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`;
         const topClass = idx < 3 ? ` top-${idx + 1}` : '';
         const meClass = myName && entry.name === myName ? ' is-me' : '';
+        const hasRange = entry.runStartLevel > 0 && entry.runStartLevel < (entry.maxLevel || 1);
         const levelTag = entry.clearedAll
-          ? `🏆 全破 ${totalLevels} 關`
-          : `最高第 ${entry.maxLevel || 1} 關`;
-        const timeTag = entry.elapsedSec ? `・${entry.elapsedSec}s` : '';
+          ? `🏆 全破 ${hasRange ? `${entry.runStartLevel}→` : ''}${totalLevels} 關`
+          : hasRange
+            ? `第 ${entry.runStartLevel}→${entry.maxLevel} 關`
+            : `最高第 ${entry.maxLevel || 1} 關`;
+        const singleScoreTag = entry.levelScore > 0 ? `・單關 ${entry.levelScore} 分` : '';
+        const timeTag =
+          entry.runElapsedSec > 0
+            ? `・單關 ${formatDuration(entry.elapsedSec)} / 整趟 ${formatDuration(entry.runElapsedSec)}`
+            : entry.elapsedSec > 0
+              ? `・單關 ${formatDuration(entry.elapsedSec)}`
+              : '';
+        const subScoreLabel = entry.careerScore > 0 ? `累計 ${entry.careerScore}` : '連關總分';
 
         return `
           <div class="lb-row${topClass}${meClass}">
             <div class="lb-rank">${rankIcon}</div>
             <div class="lb-player-info">
               <div class="lb-player-name">${escapeHtml(entry.name)}</div>
-              <div class="lb-player-meta">${levelTag}${timeTag}</div>
+              <div class="lb-player-meta">${levelTag}${singleScoreTag}${timeTag}</div>
             </div>
-            <div class="lb-score-val">${entry.score}</div>
+            <div class="lb-score-col">
+              <div class="lb-score-val">${entry.score}</div>
+              <div class="lb-score-sub">${subScoreLabel}</div>
+            </div>
           </div>
         `;
       })

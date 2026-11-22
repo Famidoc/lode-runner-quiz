@@ -23,6 +23,13 @@ function sanitizePlayerName(name) {
   return String(name ?? '').trim().slice(0, 16) || '匿名探險家';
 }
 
+function getEffectiveRunTime(entry) {
+  const runSec = Number(entry?.runElapsedSec) || 0;
+  if (runSec > 0) return runSec;
+  const singleSec = Number(entry?.elapsedSec) || 0;
+  return singleSec > 0 ? singleSec : Infinity;
+}
+
 function isBetterEntry(candidate, existing) {
   const cScore = candidate.score || 0;
   const eScore = existing.score || 0;
@@ -30,7 +37,7 @@ function isBetterEntry(candidate, existing) {
   const cLv = candidate.maxLevel || 1;
   const eLv = existing.maxLevel || 1;
   if (cLv !== eLv) return cLv > eLv;
-  return (candidate.elapsedSec ?? Infinity) < (existing.elapsedSec ?? Infinity);
+  return getEffectiveRunTime(candidate) < getEffectiveRunTime(existing);
 }
 
 function sortAndTrimEntries(entries, maxCount) {
@@ -39,7 +46,7 @@ function sortAndTrimEntries(entries, maxCount) {
     .sort((a, b) => {
       if ((b.score || 0) !== (a.score || 0)) return (b.score || 0) - (a.score || 0);
       if ((b.maxLevel || 0) !== (a.maxLevel || 0)) return (b.maxLevel || 0) - (a.maxLevel || 0);
-      return (a.elapsedSec || 0) - (b.elapsedSec || 0);
+      return getEffectiveRunTime(a) - getEffectiveRunTime(b);
     })
     .slice(0, maxCount);
 }
@@ -139,19 +146,37 @@ class LeaderboardService {
     return Promise.race([connectPromise, timeoutPromise]);
   }
 
-  async submitScore({ name, score, maxLevel, clearedAll, elapsedSec }) {
+  async submitScore({
+    name,
+    score,
+    levelScore = 0,
+    careerScore = 0,
+    maxLevel,
+    runStartLevel = 1,
+    clearedAll,
+    elapsedSec,
+    runElapsedSec = 0
+  }) {
     const cleanName = sanitizePlayerName(name);
     const numericScore = Math.max(0, Math.round(Number(score) || 0));
+    const numericLevelScore = Math.max(0, Math.round(Number(levelScore) || 0));
+    const numericCareerScore = Math.max(0, Math.round(Number(careerScore) || 0));
     const numericLevel = Math.max(1, Math.round(Number(maxLevel) || 1));
+    const numericStartLevel = Math.max(1, Math.round(Number(runStartLevel) || 1));
     const numericElapsed = Math.max(0, Math.round(Number(elapsedSec) || 0));
+    const numericRunElapsed = Math.max(0, Math.round(Number(runElapsedSec) || 0));
 
     storage.setPlayerName(cleanName);
     storage.saveLocalLeaderboardEntry({
       name: cleanName,
       score: numericScore,
+      levelScore: numericLevelScore,
+      careerScore: numericCareerScore,
       maxLevel: numericLevel,
+      runStartLevel: numericStartLevel,
       clearedAll: Boolean(clearedAll),
-      elapsedSec: numericElapsed
+      elapsedSec: numericElapsed,
+      runElapsedSec: numericRunElapsed
     });
 
     if (numericScore <= 0) {
@@ -179,21 +204,30 @@ class LeaderboardService {
       const incoming = {
         name: cleanName,
         score: numericScore,
+        levelScore: numericLevelScore,
+        careerScore: numericCareerScore,
         maxLevel: numericLevel,
+        runStartLevel: numericStartLevel,
         clearedAll: Boolean(clearedAll),
-        elapsedSec: numericElapsed
+        elapsedSec: numericElapsed,
+        runElapsedSec: numericRunElapsed
       };
 
-      const useIncomingTiming = !prev || isBetterEntry(incoming, prev);
+      const takeIncoming = !prev || isBetterEntry(incoming, prev);
+      const base = takeIncoming ? incoming : prev;
 
       await setDoc(
         ref,
         {
           name: cleanName,
-          score: prev ? Math.max(prev.score || 0, numericScore) : numericScore,
-          maxLevel: prev ? Math.max(prev.maxLevel || 1, numericLevel) : numericLevel,
+          score: Math.round(Number(base.score) || 0),
+          levelScore: Math.round(Number(base.levelScore) || 0),
+          careerScore: Math.max(Math.round(Number(prev?.careerScore) || 0), numericCareerScore),
+          maxLevel: Math.round(Number(base.maxLevel) || 1),
+          runStartLevel: Math.round(Number(base.runStartLevel) || 0),
           clearedAll: Boolean((prev && prev.clearedAll) || clearedAll),
-          elapsedSec: useIncomingTiming ? numericElapsed : prev.elapsedSec || numericElapsed,
+          elapsedSec: Math.round(Number(base.elapsedSec) || 0),
+          runElapsedSec: Math.round(Number(base.runElapsedSec) || 0),
           updatedAt: Date.now()
         },
         { merge: true }
@@ -222,9 +256,13 @@ class LeaderboardService {
           const candidate = {
             name: cleanName,
             score: Math.round(Number(d.score) || 0),
+            levelScore: Math.round(Number(d.levelScore) || 0),
+            careerScore: Math.round(Number(d.careerScore) || 0),
             maxLevel: Math.round(Number(d.maxLevel) || 1),
+            runStartLevel: Math.round(Number(d.runStartLevel) || 0),
             clearedAll: Boolean(d.clearedAll),
             elapsedSec: Math.round(Number(d.elapsedSec) || 0),
+            runElapsedSec: Math.round(Number(d.runElapsedSec) || 0),
             updatedAt: d.updatedAt || 0
           };
           const existing = uniqueByName.get(cleanName);

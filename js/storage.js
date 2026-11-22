@@ -25,6 +25,23 @@ function sanitizeName(name) {
   return String(name ?? '').trim().slice(0, 16);
 }
 
+function getEffectiveRunTime(entry) {
+  const runSec = Number(entry?.runElapsedSec) || 0;
+  if (runSec > 0) return runSec;
+  const singleSec = Number(entry?.elapsedSec) || 0;
+  return singleSec > 0 ? singleSec : Infinity;
+}
+
+function isBetterRunEntry(candidate, existing) {
+  const cScore = candidate.score || 0;
+  const eScore = existing.score || 0;
+  if (cScore !== eScore) return cScore > eScore;
+  const cLv = candidate.maxLevel || 1;
+  const eLv = existing.maxLevel || 1;
+  if (cLv !== eLv) return cLv > eLv;
+  return getEffectiveRunTime(candidate) < getEffectiveRunTime(existing);
+}
+
 function readRawSave() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
@@ -72,7 +89,17 @@ export const storage = {
     return save;
   },
 
-  saveLocalLeaderboardEntry({ name, score, maxLevel, clearedAll, elapsedSec }) {
+  saveLocalLeaderboardEntry({
+    name,
+    score,
+    levelScore = 0,
+    careerScore = 0,
+    maxLevel,
+    runStartLevel = 1,
+    clearedAll,
+    elapsedSec,
+    runElapsedSec = 0
+  }) {
     const save = readRawSave();
     const numericScore = Math.max(0, Math.round(Number(score) || 0));
     if (numericScore <= 0) return save;
@@ -81,9 +108,13 @@ export const storage = {
     const nextEntry = {
       name: cleanName,
       score: numericScore,
+      levelScore: Math.max(0, Math.round(Number(levelScore) || 0)),
+      careerScore: Math.max(0, Math.round(Number(careerScore) || 0)),
       maxLevel: Math.max(1, Math.round(Number(maxLevel) || 1)),
+      runStartLevel: Math.max(1, Math.round(Number(runStartLevel) || 1)),
       clearedAll: Boolean(clearedAll),
       elapsedSec: Math.max(0, Math.round(Number(elapsedSec) || 0)),
+      runElapsedSec: Math.max(0, Math.round(Number(runElapsedSec) || 0)),
       updatedAt: Date.now()
     };
 
@@ -98,19 +129,18 @@ export const storage = {
     if (!prev) {
       byName.set(cleanName, nextEntry);
     } else {
-      const isBetterScore = nextEntry.score > prev.score;
-      const isSameScoreBetterProgress =
-        nextEntry.score === prev.score &&
-        (nextEntry.maxLevel > (prev.maxLevel || 1) ||
-          (nextEntry.maxLevel === (prev.maxLevel || 1) &&
-            nextEntry.elapsedSec < (prev.elapsedSec ?? Infinity)));
-
+      const takeIncoming = isBetterRunEntry(nextEntry, prev);
+      const base = takeIncoming ? nextEntry : prev;
       byName.set(cleanName, {
         name: cleanName,
-        score: Math.max(prev.score, nextEntry.score),
-        maxLevel: Math.max(prev.maxLevel || 1, nextEntry.maxLevel),
+        score: base.score || 0,
+        levelScore: base.levelScore || 0,
+        careerScore: Math.max(prev.careerScore || 0, nextEntry.careerScore),
+        maxLevel: base.maxLevel || 1,
+        runStartLevel: base.runStartLevel || 0,
         clearedAll: Boolean(prev.clearedAll || nextEntry.clearedAll),
-        elapsedSec: isBetterScore || isSameScoreBetterProgress ? nextEntry.elapsedSec : (prev.elapsedSec || nextEntry.elapsedSec),
+        elapsedSec: base.elapsedSec || 0,
+        runElapsedSec: base.runElapsedSec || 0,
         updatedAt: Date.now()
       });
     }
@@ -119,7 +149,7 @@ export const storage = {
       .sort((a, b) => {
         if ((b.score || 0) !== (a.score || 0)) return (b.score || 0) - (a.score || 0);
         if ((b.maxLevel || 0) !== (a.maxLevel || 0)) return (b.maxLevel || 0) - (a.maxLevel || 0);
-        return (a.elapsedSec || 0) - (b.elapsedSec || 0);
+        return getEffectiveRunTime(a) - getEffectiveRunTime(b);
       })
       .slice(0, MAX_LOCAL_LEADERBOARD);
 
@@ -127,13 +157,20 @@ export const storage = {
     return save;
   },
 
-  recordLevelClear({ levelId, score, elapsedSec, totalLevels }) {
+  recordLevelClear({ levelId, score, levelScore = 0, elapsedSec, totalLevels }) {
     const save = readRawSave();
     const key = String(levelId);
-    const prev = save.levelRecords[key] || { bestScore: 0, bestTime: null, cleared: false };
+    const prev = save.levelRecords[key] || {
+      bestScore: 0,
+      bestLevelScore: 0,
+      bestTime: null,
+      cleared: false
+    };
+    const cleanLevelScore = Math.max(0, Math.round(Number(levelScore) || 0));
 
     save.levelRecords[key] = {
       bestScore: Math.max(prev.bestScore || 0, score),
+      bestLevelScore: Math.max(prev.bestLevelScore || 0, cleanLevelScore),
       bestTime: prev.bestTime === null ? elapsedSec : Math.min(prev.bestTime, elapsedSec),
       cleared: true
     };
@@ -149,6 +186,26 @@ export const storage = {
 
     writeSave(save);
     return save;
+  },
+
+  getCareerSummary(saveData = null) {
+    const save = saveData || readRawSave();
+    const records = Object.values(save.levelRecords || {});
+    let careerScore = 0;
+    let scoredLevelsCount = 0;
+    let clearedLevelsCount = 0;
+
+    for (const rec of records) {
+      if (!rec) continue;
+      if (rec.cleared) clearedLevelsCount += 1;
+      const lvScore = Math.max(0, Math.round(Number(rec.bestLevelScore) || 0));
+      if (lvScore > 0) {
+        careerScore += lvScore;
+        scoredLevelsCount += 1;
+      }
+    }
+
+    return { careerScore, scoredLevelsCount, clearedLevelsCount };
   },
 
   updateHighScore(score) {

@@ -118,6 +118,7 @@
         <p>• 觸碰寶箱時時間將自動凍結；答對獲得 <strong>1.8 秒無敵閃爍</strong> 脫離險境。</p>
         <p>• 答錯或超時會鎖定寶箱 5 秒，守衛將進入 <strong>5 秒加速追擊</strong>！</p>
         <p>• 挖開磚塊 5 秒後復原；鬼掉進洞中會被困 3 秒，可從鬼頭上安全踩過。</p>
+        <p>• 連續過關分數累加（排行榜依<strong>連續闖關總分</strong>排名），並同步記錄 <strong>12 關累計總積分</strong>；過關每剩 1 顆愛心額外 <strong>+200 分</strong>！</p>
       </div>
       <p class="loading-tip" id="start-loading-tip">正在準備知識題庫…</p>
       <div class="modal-btn-row">
@@ -154,6 +155,7 @@
         <h2>🗺️ 選擇挑戰關卡</h2>
         <button type="button" class="btn-close-x" id="btn-close-levels">✕</button>
       </div>
+      <div class="levels-career-bar" id="levels-career-bar"></div>
       <div class="level-select-grid" id="level-select-grid"></div>
     </div>
   </div>
@@ -163,11 +165,13 @@
     <div class="modal-card clear-card">
       <h2 id="clear-title">🎉 過關成功！</h2>
       <p class="clear-sub" id="clear-subtitle"></p>
-      <div class="clear-stats-row">
-        <div class="clear-stat"><span>總分</span><strong id="clear-score">0</strong></div>
-        <div class="clear-stat"><span>耗時</span><strong id="clear-time">0s</strong></div>
+      <div class="clear-stats-row clear-stats-grid-4">
+        <div class="clear-stat"><span>連續闖關總分</span><strong id="clear-score">0</strong></div>
+        <div class="clear-stat"><span>本關單關得分</span><strong id="clear-level-score">0</strong></div>
+        <div class="clear-stat"><span>單關 / 整趟耗時</span><strong id="clear-time">0s</strong></div>
         <div class="clear-stat"><span>剩餘生命</span><strong id="clear-lives">3 / 3</strong></div>
       </div>
+      <div class="clear-bonus-strip" id="clear-bonus-strip"></div>
       <h3 class="review-heading">📚 本關知識尋寶回顧</h3>
       <div class="clear-review-list" id="clear-review-list"></div>
       <div class="lb-submit-box" id="clear-lb-box">
@@ -191,9 +195,11 @@
     <div class="modal-card gameover-card">
       <h2>💀 探險失敗</h2>
       <p id="gameover-reason">你被守衛抓到了！</p>
-      <div class="clear-stats-row">
-        <div class="clear-stat"><span>本局分數</span><strong id="gameover-score">0</strong></div>
-        <div class="clear-stat"><span>歷史最高</span><strong id="gameover-best">0</strong></div>
+      <div class="clear-stats-row clear-stats-grid-4">
+        <div class="clear-stat"><span>連續闖關總分</span><strong id="gameover-score">0</strong></div>
+        <div class="clear-stat"><span>本關單關得分</span><strong id="gameover-level-score">0</strong></div>
+        <div class="clear-stat"><span>單關 / 整趟耗時</span><strong id="gameover-time">0s</strong></div>
+        <div class="clear-stat"><span>歷史最高連關</span><strong id="gameover-best">0</strong></div>
       </div>
       <div class="lb-submit-box" id="gameover-lb-box">
         <div class="lb-submit-title">🏆 登錄目前積分至英雄排行榜</div>
@@ -224,6 +230,7 @@
           <button type="button" class="btn-close-x" id="btn-close-leaderboard" aria-label="關閉排行榜">✕</button>
         </div>
       </div>
+      <p class="lb-rule-note">🏅 依「連續闖關總分」排名（由第 1 關一路連破可衝極限高分），並同步顯示各關最佳累計總積分與耗時。</p>
       <div class="lb-my-summary" id="lb-my-summary"></div>
       <div class="lb-list" id="leaderboard-list">
         <div class="lb-empty">正在載入排行榜…</div>
