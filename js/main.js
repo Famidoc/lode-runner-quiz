@@ -61,9 +61,11 @@ class GameApp {
       this.gameData = await loadAllGameData();
       this._renderLevelSelectGrid();
       this.startLevel(Math.min(this.saveData.unlockedLevel - 1, this.gameData.levels.length - 1), {
-        pauseAtStart: true
+        preserveScore: false,
+        waitForStart: true
       });
       this._showStartOverlay();
+      this._syncReadyOverlay();
       leaderboardService.init().catch(() => {});
     } catch (err) {
       console.error('初始化失敗:', err);
@@ -156,23 +158,19 @@ class GameApp {
     };
   }
 
-  startLevel(levelIdx, { preserveScore = false, pauseAtStart = false } = {}) {
+  startLevel(levelIdx, { preserveScore = false, waitForStart = true } = {}) {
     if (!this.gameData) return;
     const total = this.gameData.levels.length;
     this.currentLevelIdx = Math.max(0, Math.min(total - 1, levelIdx));
     const levelObj = this.gameData.levels[this.currentLevelIdx];
 
     this._prepareLevelQuestions(levelObj);
-    this.engine.loadLevel(levelObj, { preserveScore });
-
-    if (pauseAtStart) {
-      this.engine.state = GAME_STATE.PAUSED;
-    }
-
     this._modalPausedGame = false;
     this._returnToModalId = null;
     this._hideSubModals();
+    this.engine.loadLevel(levelObj, { preserveScore, waitForStart });
     this._updateHud(this.engine.getHudSnapshot());
+    this._syncReadyOverlay();
   }
 
   async _handleQuizTrigger(chest) {
@@ -343,8 +341,15 @@ class GameApp {
 
     const pauseBtn = document.getElementById('btn-pause');
     if (pauseBtn) {
-      pauseBtn.textContent = snap.state === GAME_STATE.PAUSED ? '▶ 繼續' : '⏸ 暫停';
+      pauseBtn.textContent =
+        snap.state === GAME_STATE.READY
+          ? '▶ 開始'
+          : snap.state === GAME_STATE.PAUSED
+            ? '▶ 繼續'
+            : '⏸ 暫停';
     }
+
+    this._syncReadyOverlay();
   }
 
   _updateHighScoreUI() {
@@ -418,6 +423,30 @@ class GameApp {
     ].some((id) => !document.getElementById(id)?.classList.contains('hidden'));
   }
 
+  _syncReadyOverlay() {
+    const overlay = document.getElementById('ready-overlay');
+    if (!overlay) return;
+    const show = this.engine.state === GAME_STATE.READY && !this._anyModalBlockingMaze();
+    overlay.classList.toggle('hidden', !show);
+    if (show) {
+      const titleEl = document.getElementById('ready-title');
+      const descEl = document.getElementById('ready-desc');
+      if (titleEl) {
+        titleEl.textContent = this.engine.readyTitle || `第 ${this.engine.level?.id || 1} 關`;
+      }
+      if (descEl) {
+        descEl.textContent =
+          this.engine.readyReason || '觀察迷宮與守衛位置，準備好再出發！';
+      }
+    }
+  }
+
+  _startFromReady() {
+    audio.unlock();
+    this.engine.startPlaying();
+    this._syncReadyOverlay();
+  }
+
   _openOverlayModal(modalId, { returnTo = null } = {}) {
     if (this.quizModal.isOpen()) return false;
     if (!returnTo && this.engine.state === GAME_STATE.PLAYING) {
@@ -427,6 +456,7 @@ class GameApp {
     this._returnToModalId = returnTo;
     this._hideSubModals();
     document.getElementById(modalId)?.classList.remove('hidden');
+    this._syncReadyOverlay();
     return true;
   }
 
@@ -436,6 +466,7 @@ class GameApp {
       const targetId = this._returnToModalId;
       this._returnToModalId = null;
       document.getElementById(targetId)?.classList.remove('hidden');
+      this._syncReadyOverlay();
       return;
     }
     if (this._modalPausedGame && !this._anyModalBlockingMaze()) {
@@ -444,6 +475,7 @@ class GameApp {
         this.engine.togglePause();
       }
     }
+    this._syncReadyOverlay();
   }
 
   _exitToHome() {
@@ -455,8 +487,9 @@ class GameApp {
 
     const total = this.gameData?.levels?.length || 1;
     const unlockedIdx = Math.min(Math.max(0, (this.saveData.unlockedLevel || 1) - 1), total - 1);
-    this.startLevel(unlockedIdx, { preserveScore: false, pauseAtStart: true });
+    this.startLevel(unlockedIdx, { preserveScore: false, waitForStart: true });
     this._showStartOverlay();
+    this._syncReadyOverlay();
   }
 
   _prepareLbSubmitBox(prefix, visible) {
@@ -655,12 +688,21 @@ class GameApp {
       this._hideSubModals();
       this._modalPausedGame = false;
       this._returnToModalId = null;
-      if (this.engine.state === GAME_STATE.PAUSED) {
-        this.engine.state = GAME_STATE.PLAYING;
+      if (
+        this.engine.state === GAME_STATE.GAME_OVER ||
+        this.engine.state === GAME_STATE.LEVEL_CLEAR
+      ) {
+        this.startLevel(this.currentLevelIdx, { preserveScore: false, waitForStart: true });
+      } else if (this.engine.state === GAME_STATE.PAUSED) {
+        this.engine.state = GAME_STATE.READY;
         this.engine._emitHud();
       } else {
-        this.startLevel(this.currentLevelIdx, { preserveScore: false });
+        this._syncReadyOverlay();
       }
+    });
+
+    document.getElementById('btn-ready-start').addEventListener('click', () => {
+      this._startFromReady();
     });
 
     document.getElementById('btn-open-levels-from-start').addEventListener('click', () => {
@@ -805,6 +847,17 @@ class GameApp {
       }
 
       if (this._anyModalBlockingMaze()) {
+        return;
+      }
+
+      if (this.engine.state === GAME_STATE.READY) {
+        if (e.code === 'Space' || e.code === 'Enter') {
+          e.preventDefault();
+          this._startFromReady();
+        } else if (e.code === 'KeyR') {
+          e.preventDefault();
+          this.startLevel(this.currentLevelIdx, { preserveScore: false, waitForStart: true });
+        }
         return;
       }
 

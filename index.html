@@ -51,6 +51,14 @@
     <!-- 主遊戲 2.5D Canvas 畫布區 -->
     <main class="stage-wrap">
       <canvas id="game-canvas" width="960" height="576" aria-label="知識尋寶遊戲畫面"></canvas>
+      <div class="ready-overlay hidden" id="ready-overlay" aria-live="polite">
+        <div class="ready-card">
+          <div class="ready-title" id="ready-title">第 1 關：準備開始</div>
+          <div class="ready-desc" id="ready-desc">觀察迷宮與守衛位置，準備好再出發！</div>
+          <button type="button" class="btn-ready-start" id="btn-ready-start">▶ 開始</button>
+          <div class="ready-hint">點擊按鈕，或按 Space / Enter 開始</div>
+        </div>
+      </div>
     </main>
 
     <!-- 手機觸控虛擬搖桿與挖洞操作面板 -->

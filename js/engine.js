@@ -35,6 +35,8 @@ export class LodeRunnerEngine {
     this.postWrongGraceTimer = 0;
     this.bannerText = '';
     this.bannerTimer = 0;
+    this.readyTitle = '';
+    this.readyReason = '';
 
     this.particles = [];
     this.floatingTexts = [];
@@ -49,7 +51,7 @@ export class LodeRunnerEngine {
     };
   }
 
-  loadLevel(levelData, { preserveScore = false } = {}) {
+  loadLevel(levelData, { preserveScore = false, waitForStart = true } = {}) {
     this.level = levelData;
     this.grid = levelData.grid.map((row) => row.slice());
     if (!preserveScore) {
@@ -63,6 +65,7 @@ export class LodeRunnerEngine {
     this.dugHoles.clear();
     this.particles = [];
     this.floatingTexts = [];
+    this.clearInputs();
 
     this.chests = levelData.chests.map((ch) => ({
       type: ch.type,
@@ -74,9 +77,27 @@ export class LodeRunnerEngine {
     }));
 
     this._resetEntities();
-    this.state = GAME_STATE.PLAYING;
-    this.showBanner(`第 ${levelData.id} 關：${levelData.name}`, 2.4);
+    this.readyTitle = `第 ${levelData.id} 關：${levelData.name}`;
+    this.readyReason = levelData.subtitle || '觀察迷宮與守衛位置，準備好再出發！';
+
+    if (waitForStart) {
+      this.state = GAME_STATE.READY;
+      this.bannerText = '';
+      this.bannerTimer = 0;
+    } else {
+      this.state = GAME_STATE.PLAYING;
+      this.showBanner(`第 ${levelData.id} 關：${levelData.name}`, 2.4);
+    }
     this._emitHud();
+  }
+
+  startPlaying() {
+    if (this.state !== GAME_STATE.READY || !this.level) return false;
+    this.clearInputs();
+    this.state = GAME_STATE.PLAYING;
+    this.showBanner(`第 ${this.level.id} 關：出發尋寶！`, 1.8);
+    this._emitHud();
+    return true;
   }
 
   _resetEntities() {
@@ -131,6 +152,10 @@ export class LodeRunnerEngine {
   }
 
   togglePause() {
+    if (this.state === GAME_STATE.READY) {
+      this.startPlaying();
+      return;
+    }
     if (this.state === GAME_STATE.PLAYING) {
       this.state = GAME_STATE.PAUSED;
       this.clearInputs();
@@ -162,6 +187,8 @@ export class LodeRunnerEngine {
       elapsedSec: this.elapsedSec,
       exitActive: this.exitActive,
       frenzyTimer: this.frenzyTimer,
+      readyTitle: this.readyTitle,
+      readyReason: this.readyReason,
       chests: this.chests.map((c) => ({
         type: c.type,
         collected: c.collected,
@@ -846,9 +873,14 @@ export class LodeRunnerEngine {
       return;
     }
 
-    // 保留已收服的寶箱，重置角色與守衛位置並給予短暫無敵閃爍
+    // 保留已收服的寶箱，重置角色與守衛位置並暫停待命等待玩家按開始
     this._resetEntities();
-    this.showBanner(`${reason}（剩餘 ${this.lives} 條命，已收集寶箱保留）`, 2.6);
+    this.clearInputs();
+    this.state = GAME_STATE.READY;
+    this.readyTitle = `💥 ${reason}`;
+    this.readyReason = `剩餘 ${this.lives} 條命（已收服寶箱保留），準備好請按開始！`;
+    this.bannerText = '';
+    this.bannerTimer = 0;
     this._emitHud();
   }
 

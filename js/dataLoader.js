@@ -19,7 +19,7 @@ export function buildImageCandidates(imageUrl) {
   const primary = String(imageUrl || '').trim();
   if (!primary) return [];
   const encoded = encodeURIComponent(primary);
-  const proxy = `https://images.weserv.nl/?url=${encoded}&w=720&output=webp`;
+  const proxy = `https://images.weserv.nl/?url=${encoded}&w=1000&output=webp`;
   return [primary, proxy];
 }
 

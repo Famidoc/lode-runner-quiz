@@ -633,7 +633,21 @@ export class MazeRenderer {
     }
   }
 
-  _drawOverlays(ctx, engine) {
+  _drawOverlays(ctx, engine, t = 0) {
+    // 待命狀態：在玩家起點繪製柔和脈動定位光環，保持迷宮明亮清晰便於觀察
+    if (engine.state === GAME_STATE.READY && engine.player) {
+      const px = (engine.player.x + 0.5) * TILE_SIZE;
+      const py = (engine.player.y + 0.5) * TILE_SIZE;
+      const pulse = 0.5 + 0.5 * Math.sin(t * 5);
+      ctx.save();
+      ctx.strokeStyle = `rgba(56, 189, 248, ${0.45 + pulse * 0.45})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(px, py, 24 + pulse * 7, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // 頂部動態提示橫幅
     if (engine.bannerTimer > 0 && engine.bannerText) {
       ctx.save();
