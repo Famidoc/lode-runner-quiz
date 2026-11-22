@@ -5,6 +5,21 @@
 const SAVE_KEY = 'lr_quiz_save_v1';
 const MAX_LOCAL_LEADERBOARD = 30;
 
+const LEGACY_PAR_TIMES = {
+  1: 120,
+  2: 140,
+  3: 150,
+  4: 170,
+  5: 200,
+  6: 185,
+  7: 195,
+  8: 210,
+  9: 220,
+  10: 230,
+  11: 245,
+  12: 260
+};
+
 const DEFAULT_SAVE = {
   highScore: 0,
   unlockedLevel: 1,
@@ -42,12 +57,60 @@ function isBetterRunEntry(candidate, existing) {
   return getEffectiveRunTime(candidate) < getEffectiveRunTime(existing);
 }
 
+function backfillLegacyLevelScores(save) {
+  const records = save.levelRecords || {};
+  const ids = Object.keys(records)
+    .map(Number)
+    .filter((id) => Number.isInteger(id) && id > 0)
+    .sort((a, b) => a - b);
+
+  let changed = false;
+
+  for (const id of ids) {
+    const rec = records[String(id)];
+    if (!rec || rec.cleared !== true) continue;
+    if (Number(rec.bestLevelScore) > 0) continue;
+
+    const bestScore = Number(rec.bestScore) || 0;
+    const prevRec = records[String(id - 1)];
+    const prevBestScore = prevRec ? Number(prevRec.bestScore) || 0 : 0;
+
+    let est = 0;
+    if (id === 1 && bestScore >= 500 && bestScore <= 4500) {
+      est = Math.round(bestScore);
+    } else if (prevBestScore > 0) {
+      const diff = Math.round(bestScore - prevBestScore);
+      if (diff >= 1200 && diff <= 4200) {
+        est = diff;
+      }
+    }
+
+    if (est === 0 && bestScore >= 1200 && bestScore <= 4200) {
+      est = Math.round(bestScore);
+    }
+
+    if (est === 0) {
+      const par = LEGACY_PAR_TIMES[id] || 180;
+      const rawTime = Number(rec.bestTime);
+      const bestT = rec.bestTime !== null && Number.isFinite(rawTime) ? rawTime : Math.round(par * 0.5);
+      const rawEst = 1800 + Math.max(0, Math.round((par - bestT) * 5));
+      est = Math.max(1400, Math.min(3600, rawEst));
+    }
+
+    rec.bestLevelScore = est;
+    rec.estimatedLevelScore = true;
+    changed = true;
+  }
+
+  return changed;
+}
+
 function readRawSave() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return structuredClone(DEFAULT_SAVE);
     const parsed = JSON.parse(raw);
-    return {
+    const normalized = {
       ...DEFAULT_SAVE,
       ...parsed,
       playerName: sanitizeName(parsed.playerName),
@@ -57,6 +120,11 @@ function readRawSave() {
       plantWrongPool: Array.isArray(parsed.plantWrongPool) ? parsed.plantWrongPool : [],
       medicalWrongPool: Array.isArray(parsed.medicalWrongPool) ? parsed.medicalWrongPool : []
     };
+
+    if (backfillLegacyLevelScores(normalized)) {
+      writeSave(normalized);
+    }
+    return normalized;
   } catch (_) {
     return structuredClone(DEFAULT_SAVE);
   }
@@ -164,15 +232,24 @@ export const storage = {
       bestScore: 0,
       bestLevelScore: 0,
       bestTime: null,
-      cleared: false
+      cleared: false,
+      estimatedLevelScore: false
     };
     const cleanLevelScore = Math.max(0, Math.round(Number(levelScore) || 0));
+    const nextLevelScore =
+      cleanLevelScore > 0
+        ? prev.estimatedLevelScore
+          ? cleanLevelScore
+          : Math.max(prev.bestLevelScore || 0, cleanLevelScore)
+        : prev.bestLevelScore || 0;
+    const stillEstimated = cleanLevelScore > 0 ? false : Boolean(prev.estimatedLevelScore);
 
     save.levelRecords[key] = {
       bestScore: Math.max(prev.bestScore || 0, score),
-      bestLevelScore: Math.max(prev.bestLevelScore || 0, cleanLevelScore),
+      bestLevelScore: nextLevelScore,
       bestTime: prev.bestTime === null ? elapsedSec : Math.min(prev.bestTime, elapsedSec),
-      cleared: true
+      cleared: true,
+      estimatedLevelScore: stillEstimated
     };
 
     if (score > save.highScore) {
@@ -194,6 +271,7 @@ export const storage = {
     let careerScore = 0;
     let scoredLevelsCount = 0;
     let clearedLevelsCount = 0;
+    let estimatedLevelsCount = 0;
 
     for (const rec of records) {
       if (!rec) continue;
@@ -202,10 +280,11 @@ export const storage = {
       if (lvScore > 0) {
         careerScore += lvScore;
         scoredLevelsCount += 1;
+        if (rec.estimatedLevelScore) estimatedLevelsCount += 1;
       }
     }
 
-    return { careerScore, scoredLevelsCount, clearedLevelsCount };
+    return { careerScore, scoredLevelsCount, clearedLevelsCount, estimatedLevelsCount };
   },
 
   updateHighScore(score) {

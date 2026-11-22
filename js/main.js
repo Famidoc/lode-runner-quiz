@@ -413,9 +413,11 @@ class GameApp {
     const careerBar = document.getElementById('levels-career-bar');
     if (careerBar) {
       const hint =
-        career.scoredLevelsCount === 0 && career.clearedLevelsCount > 0
-          ? '過關後自動開始累計各關單關最高分'
-          : `已登錄單關成績 ${career.scoredLevelsCount} / ${total} 關`;
+        career.estimatedLevelsCount > 0
+          ? `含舊紀錄回補 ${career.estimatedLevelsCount} 關（重玩將覆寫為精準分）`
+          : career.scoredLevelsCount === 0 && career.clearedLevelsCount > 0
+            ? '過關後自動開始累計各關單關最高分'
+            : `已登錄單關成績 ${career.scoredLevelsCount} / ${total} 關`;
       careerBar.innerHTML = `
         <span>🏅 ${total} 關累計總積分：<strong>${career.careerScore} 分</strong></span>
         <span>${hint}</span>
@@ -430,7 +432,9 @@ class GameApp {
       card.className = `level-card ${unlocked ? '' : 'locked'}`;
       card.disabled = !unlocked;
       const bestLine = rec?.bestLevelScore
-        ? `單關最高 ${rec.bestLevelScore} 分 (${formatDuration(rec.bestTime)})`
+        ? rec.estimatedLevelScore
+          ? `單關約 ${rec.bestLevelScore} 分 (${formatDuration(rec.bestTime)})`
+          : `單關最高 ${rec.bestLevelScore} 分 (${formatDuration(rec.bestTime)})`
         : rec?.cleared
           ? `已通關 (${formatDuration(rec.bestTime)})`
           : unlocked
@@ -635,10 +639,14 @@ class GameApp {
     if (summaryEl) {
       const myName = this.saveData.playerName ? escapeHtml(this.saveData.playerName) : '尚未設定暱稱';
       const career = storage.getCareerSummary(this.saveData);
+      const careerNote =
+        career.estimatedLevelsCount > 0
+          ? `含舊關回補・解鎖 ${this.saveData.unlockedLevel || 1} / ${totalLevels} 關`
+          : `解鎖 ${this.saveData.unlockedLevel || 1} / ${totalLevels} 關`;
       summaryEl.innerHTML = `
         <span>我的暱稱：<strong>${myName}</strong></span>
         <span>🔥 連續闖關最高：<strong>${this.saveData.highScore || 0} 分</strong></span>
-        <span>🏅 各關累計總積分：<strong>${career.careerScore} 分</strong>（解鎖 ${this.saveData.unlockedLevel || 1} / ${totalLevels} 關）</span>
+        <span>🏅 各關累計總積分：<strong>${career.careerScore} 分</strong>（${careerNote}）</span>
       `;
     }
 
