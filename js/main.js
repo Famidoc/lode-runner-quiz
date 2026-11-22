@@ -10,6 +10,8 @@ import { LodeRunnerEngine } from './engine.js';
 import { MazeRenderer } from './renderer.js';
 import { QuizModalController } from './quizModal.js';
 import { generateFallbackSolvedBoard } from './sudokuEngine.js';
+import { renderQrSvg } from './qrcode.js';
+import { leaderboardService } from './leaderboard.js';
 
 function escapeHtml(str) {
   return String(str ?? '')
@@ -30,6 +32,11 @@ class GameApp {
     this.saveData = storage.load();
     this.currentLevelIdx = 0;
     this.levelRunQuestions = null;
+    this.deferredPrompt = null;
+    this._modalPausedGame = false;
+    this._returnToModalId = null;
+    this._lastResultSummary = null;
+    this._submittingLb = false;
 
     this.engine = new LodeRunnerEngine({
       onHudUpdate: (snap) => this._updateHud(snap),
@@ -42,6 +49,7 @@ class GameApp {
     this._bindDOM();
     this._bindKeyboard();
     this._bindTouchControls();
+    this._bindPwaInstall();
   }
 
   async init() {
@@ -56,6 +64,7 @@ class GameApp {
         pauseAtStart: true
       });
       this._showStartOverlay();
+      leaderboardService.init().catch(() => {});
     } catch (err) {
       console.error('初始化失敗:', err);
       const loadingTip = document.getElementById('start-loading-tip');
@@ -160,6 +169,8 @@ class GameApp {
       this.engine.state = GAME_STATE.PAUSED;
     }
 
+    this._modalPausedGame = false;
+    this._returnToModalId = null;
     this._hideSubModals();
     this._updateHud(this.engine.getHudSnapshot());
   }
@@ -220,8 +231,13 @@ class GameApp {
     this._updateHighScoreUI();
     this._renderLevelSelectGrid();
 
+    const totalLevels = this.gameData.levels.length;
+    const isFinal = this.currentLevelIdx >= totalLevels - 1;
+
     const modal = document.getElementById('clear-modal');
-    document.getElementById('clear-title').textContent = `🎉 第 ${summary.levelId} 關過關！`;
+    document.getElementById('clear-title').textContent = isFinal
+      ? `🏆 恭喜全破 ${totalLevels} 關！`
+      : `🎉 第 ${summary.levelId} 關過關！`;
     document.getElementById('clear-subtitle').textContent = summary.levelName;
     document.getElementById('clear-score').textContent = String(summary.score);
     document.getElementById('clear-time').textContent = `${summary.elapsedSec} 秒`;
@@ -261,8 +277,15 @@ class GameApp {
       </div>
     `;
 
+    this._lastResultSummary = {
+      score: summary.score,
+      maxLevel: summary.levelId,
+      clearedAll: isFinal,
+      elapsedSec: summary.elapsedSec
+    };
+    this._prepareLbSubmitBox('clear', summary.score > 0);
+
     const nextBtn = document.getElementById('btn-next-level');
-    const isFinal = this.currentLevelIdx >= this.gameData.levels.length - 1;
     nextBtn.textContent = isFinal ? '🏆 重溫第 1 關（挑戰更高分）' : '▶ 進入下一關';
 
     modal.classList.remove('hidden');
@@ -274,11 +297,21 @@ class GameApp {
     document.getElementById('gameover-reason').textContent = info.reason || '生命耗盡！';
     document.getElementById('gameover-score').textContent = String(info.score);
     document.getElementById('gameover-best').textContent = String(this.saveData.highScore);
+
+    this._lastResultSummary = {
+      score: info.score,
+      maxLevel: info.levelId || this.currentLevelIdx + 1,
+      clearedAll: false,
+      elapsedSec: Math.round(this.engine.elapsedSec || 0)
+    };
+    this._prepareLbSubmitBox('gameover', info.score > 0);
+
     modal.classList.remove('hidden');
   }
 
   _updateHud(snap) {
-    document.getElementById('hud-level').textContent = `第 ${snap.levelId} 關`;
+    const total = this.gameData?.levels?.length || 12;
+    document.getElementById('hud-level').textContent = `第 ${snap.levelId} / ${total} 關`;
     document.getElementById('hud-score').textContent = String(snap.score);
     document.getElementById('hud-time').textContent = `${Math.floor(snap.elapsedSec)}s`;
 
@@ -355,52 +388,341 @@ class GameApp {
     const el = document.getElementById('start-modal');
     const tip = document.getElementById('start-loading-tip');
     if (tip) {
-      tip.textContent = `已載入 ${this.gameData.plants.length} 種花草、${this.gameData.sudokus.length} 組數獨盤面、${this.gameData.medical.length} 題家醫衛教！`;
+      tip.textContent = `全 ${this.gameData.levels.length} 關｜已載入 ${this.gameData.plants.length} 種花草、${this.gameData.sudokus.length} 組數獨、${this.gameData.medical.length} 題家醫衛教！`;
     }
     el.classList.remove('hidden');
   }
 
   _hideSubModals() {
-    ['start-modal', 'levels-modal', 'clear-modal', 'gameover-modal'].forEach((id) => {
+    [
+      'start-modal',
+      'levels-modal',
+      'clear-modal',
+      'gameover-modal',
+      'leaderboard-modal',
+      'qr-modal'
+    ].forEach((id) => {
       document.getElementById(id)?.classList.add('hidden');
     });
   }
 
   _anyModalBlockingMaze() {
     if (this.quizModal.isOpen()) return true;
-    return ['start-modal', 'levels-modal', 'clear-modal', 'gameover-modal'].some(
-      (id) => !document.getElementById(id)?.classList.contains('hidden')
-    );
+    return [
+      'start-modal',
+      'levels-modal',
+      'clear-modal',
+      'gameover-modal',
+      'leaderboard-modal',
+      'qr-modal'
+    ].some((id) => !document.getElementById(id)?.classList.contains('hidden'));
+  }
+
+  _openOverlayModal(modalId, { returnTo = null } = {}) {
+    if (this.quizModal.isOpen()) return false;
+    if (!returnTo && this.engine.state === GAME_STATE.PLAYING) {
+      this.engine.togglePause();
+      this._modalPausedGame = true;
+    }
+    this._returnToModalId = returnTo;
+    this._hideSubModals();
+    document.getElementById(modalId)?.classList.remove('hidden');
+    return true;
+  }
+
+  _closeOverlayModal(modalId) {
+    document.getElementById(modalId)?.classList.add('hidden');
+    if (this._returnToModalId) {
+      const targetId = this._returnToModalId;
+      this._returnToModalId = null;
+      document.getElementById(targetId)?.classList.remove('hidden');
+      return;
+    }
+    if (this._modalPausedGame && !this._anyModalBlockingMaze()) {
+      this._modalPausedGame = false;
+      if (this.engine.state === GAME_STATE.PAUSED) {
+        this.engine.togglePause();
+      }
+    }
+  }
+
+  _exitToHome() {
+    audio.unlock();
+    this.engine.clearInputs();
+    this._modalPausedGame = false;
+    this._returnToModalId = null;
+    this._hideSubModals();
+
+    const total = this.gameData?.levels?.length || 1;
+    const unlockedIdx = Math.min(Math.max(0, (this.saveData.unlockedLevel || 1) - 1), total - 1);
+    this.startLevel(unlockedIdx, { preserveScore: false, pauseAtStart: true });
+    this._showStartOverlay();
+  }
+
+  _prepareLbSubmitBox(prefix, visible) {
+    const box = document.getElementById(`${prefix}-lb-box`);
+    const input = document.getElementById(`${prefix}-lb-name`);
+    const btn = document.getElementById(`btn-${prefix}-lb-submit`);
+    const status = document.getElementById(`${prefix}-lb-status`);
+    if (!box) return;
+
+    box.classList.toggle('hidden', !visible);
+    if (input) input.value = this.saveData.playerName || '';
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '🏆 登錄分數';
+    }
+    if (status) {
+      status.classList.add('hidden');
+      status.innerHTML = '';
+    }
+  }
+
+  async _submitLeaderboardFrom(prefix) {
+    if (this._submittingLb || !this._lastResultSummary) return;
+    const input = document.getElementById(`${prefix}-lb-name`);
+    const btn = document.getElementById(`btn-${prefix}-lb-submit`);
+    const status = document.getElementById(`${prefix}-lb-status`);
+    if (!btn || !status) return;
+
+    this._submittingLb = true;
+    btn.disabled = true;
+    btn.textContent = '⏳ 登錄中…';
+
+    try {
+      const res = await leaderboardService.submitScore({
+        name: input?.value || '',
+        ...this._lastResultSummary
+      });
+
+      this.saveData = storage.load();
+      ['clear-lb-name', 'gameover-lb-name'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.value = res.cleanName;
+      });
+
+      const modeText = res.syncedCloud
+        ? `☁️ 「${escapeHtml(res.cleanName)}」已登錄全球排行榜！`
+        : `📱 「${escapeHtml(res.cleanName)}」已存於本機排行榜（離線模式）！`;
+
+      status.innerHTML = `<span>${modeText}</span><button type="button" class="btn-inline-link" id="btn-${prefix}-view-lb">查看排行榜 →</button>`;
+      status.classList.remove('hidden');
+
+      document.getElementById(`btn-${prefix}-view-lb`)?.addEventListener('click', () => {
+        this._openLeaderboardModal({ returnTo: `${prefix}-modal` });
+      });
+
+      btn.textContent = '✅ 更新分數';
+    } finally {
+      btn.disabled = false;
+      this._submittingLb = false;
+    }
+  }
+
+  async _openLeaderboardModal({ returnTo = null } = {}) {
+    if (!this._openOverlayModal('leaderboard-modal', { returnTo })) return;
+    await this._refreshLeaderboardContent();
+  }
+
+  async _refreshLeaderboardContent() {
+    const badge = document.getElementById('lb-mode-badge');
+    const summaryEl = document.getElementById('lb-my-summary');
+    const listEl = document.getElementById('leaderboard-list');
+    const totalLevels = this.gameData?.levels?.length || 12;
+
+    if (badge) {
+      badge.textContent = '連線中…';
+      badge.className = 'lb-mode-badge local';
+    }
+    if (listEl) {
+      listEl.innerHTML = '<div class="lb-empty">⏳ 正在讀取英雄排行榜…</div>';
+    }
+    if (summaryEl) {
+      const myName = this.saveData.playerName ? escapeHtml(this.saveData.playerName) : '尚未設定暱稱';
+      summaryEl.innerHTML = `
+        <span>我的暱稱：<strong>${myName}</strong></span>
+        <span>歷史最高：<strong>${this.saveData.highScore || 0} 分</strong>（解鎖第 ${this.saveData.unlockedLevel || 1} / ${totalLevels} 關）</span>
+      `;
+    }
+
+    const { mode, entries } = await leaderboardService.fetchTopEntries();
+
+    if (badge) {
+      badge.textContent = mode === 'cloud' ? '☁️ 全球雲端榜' : '📱 本機離線榜';
+      badge.className = `lb-mode-badge ${mode}`;
+    }
+
+    if (!listEl) return;
+    if (!entries || entries.length === 0) {
+      listEl.innerHTML = '<div class="lb-empty">目前還沒有玩家上榜，快去過關搶下第 1 名吧！</div>';
+      return;
+    }
+
+    const myName = this.saveData.playerName || '';
+    listEl.innerHTML = entries
+      .map((entry, idx) => {
+        const rankIcon = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`;
+        const topClass = idx < 3 ? ` top-${idx + 1}` : '';
+        const meClass = myName && entry.name === myName ? ' is-me' : '';
+        const levelTag = entry.clearedAll
+          ? `🏆 全破 ${totalLevels} 關`
+          : `最高第 ${entry.maxLevel || 1} 關`;
+        const timeTag = entry.elapsedSec ? `・${entry.elapsedSec}s` : '';
+
+        return `
+          <div class="lb-row${topClass}${meClass}">
+            <div class="lb-rank">${rankIcon}</div>
+            <div class="lb-player-info">
+              <div class="lb-player-name">${escapeHtml(entry.name)}</div>
+              <div class="lb-player-meta">${levelTag}${timeTag}</div>
+            </div>
+            <div class="lb-score-val">${entry.score}</div>
+          </div>
+        `;
+      })
+      .join('');
+  }
+
+  _getShareUrl() {
+    const { protocol, hostname, origin, pathname } = window.location;
+    const isLocal =
+      !hostname ||
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '::1' ||
+      hostname.startsWith('192.168.') ||
+      hostname.startsWith('10.');
+    if ((protocol === 'https:' || protocol === 'http:') && !isLocal) {
+      const cleanPath = pathname.replace(/index\.html$/i, '');
+      return `${origin}${cleanPath.endsWith('/') ? cleanPath : `${cleanPath}/`}`;
+    }
+    return ECOSYSTEM.GAME_SITE_URL;
+  }
+
+  _openQrModal({ returnTo = null } = {}) {
+    if (!this._openOverlayModal('qr-modal', { returnTo })) return;
+    const url = this._getShareUrl();
+    const wrap = document.getElementById('qr-svg-wrap');
+    const urlEl = document.getElementById('qr-url-text');
+    const copyBtn = document.getElementById('btn-qr-copy');
+
+    if (wrap) {
+      wrap.innerHTML = renderQrSvg(url, { size: 220, margin: 4 });
+    }
+    if (urlEl) {
+      urlEl.textContent = url;
+    }
+    if (copyBtn) {
+      copyBtn.textContent = '📋 複製連結';
+    }
+  }
+
+  _bindPwaInstall() {
+    const startInstallBtn = document.getElementById('btn-pwa-install-start');
+    const qrInstallBtn = document.getElementById('btn-pwa-install-qr');
+
+    const updateInstallButtons = (show) => {
+      startInstallBtn?.classList.toggle('hidden', !show);
+      qrInstallBtn?.classList.toggle('hidden', !show);
+    };
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      this.deferredPrompt = e;
+      updateInstallButtons(true);
+    });
+
+    window.addEventListener('appinstalled', () => {
+      this.deferredPrompt = null;
+      updateInstallButtons(false);
+    });
+
+    const triggerInstall = async () => {
+      if (!this.deferredPrompt) return;
+      this.deferredPrompt.prompt();
+      await this.deferredPrompt.userChoice.catch(() => {});
+      this.deferredPrompt = null;
+      updateInstallButtons(false);
+    };
+
+    startInstallBtn?.addEventListener('click', triggerInstall);
+    qrInstallBtn?.addEventListener('click', triggerInstall);
   }
 
   _bindDOM() {
     document.getElementById('btn-start-play').addEventListener('click', () => {
       audio.unlock();
       this._hideSubModals();
+      this._modalPausedGame = false;
+      this._returnToModalId = null;
       if (this.engine.state === GAME_STATE.PAUSED) {
         this.engine.state = GAME_STATE.PLAYING;
+        this.engine._emitHud();
+      } else {
+        this.startLevel(this.currentLevelIdx, { preserveScore: false });
       }
-      this.engine._emitHud();
     });
 
     document.getElementById('btn-open-levels-from-start').addEventListener('click', () => {
-      this._hideSubModals();
-      document.getElementById('levels-modal').classList.remove('hidden');
+      this._renderLevelSelectGrid();
+      this._openOverlayModal('levels-modal', { returnTo: 'start-modal' });
+    });
+
+    document.getElementById('btn-open-lb-from-start').addEventListener('click', () => {
+      this._openLeaderboardModal({ returnTo: 'start-modal' });
+    });
+
+    document.getElementById('btn-open-qr-from-start').addEventListener('click', () => {
+      this._openQrModal({ returnTo: 'start-modal' });
     });
 
     document.getElementById('btn-levels').addEventListener('click', () => {
-      if (this.quizModal.isOpen()) return;
-      if (this.engine.state === GAME_STATE.PLAYING) {
-        this.engine.togglePause();
-      }
       this._renderLevelSelectGrid();
-      document.getElementById('levels-modal').classList.remove('hidden');
+      this._openOverlayModal('levels-modal');
     });
 
     document.getElementById('btn-close-levels').addEventListener('click', () => {
-      document.getElementById('levels-modal').classList.add('hidden');
-      if (this.engine.state === GAME_STATE.PAUSED) {
-        this.engine.togglePause();
+      this._closeOverlayModal('levels-modal');
+    });
+
+    document.getElementById('btn-leaderboard').addEventListener('click', () => {
+      this._openLeaderboardModal();
+    });
+
+    document.getElementById('btn-lb-refresh').addEventListener('click', () => {
+      this._refreshLeaderboardContent();
+    });
+
+    document.getElementById('btn-close-leaderboard').addEventListener('click', () => {
+      this._closeOverlayModal('leaderboard-modal');
+    });
+
+    document.getElementById('btn-qrcode').addEventListener('click', () => {
+      this._openQrModal();
+    });
+
+    document.getElementById('btn-close-qr').addEventListener('click', () => {
+      this._closeOverlayModal('qr-modal');
+    });
+
+    document.getElementById('btn-qr-copy').addEventListener('click', async () => {
+      const url = this._getShareUrl();
+      const copyBtn = document.getElementById('btn-qr-copy');
+      try {
+        await navigator.clipboard.writeText(url);
+      } catch (_) {
+        const tmp = document.createElement('textarea');
+        tmp.value = url;
+        document.body.appendChild(tmp);
+        tmp.select();
+        document.execCommand('copy');
+        tmp.remove();
+      }
+      if (copyBtn) {
+        copyBtn.textContent = '✅ 已複製網址！';
+        setTimeout(() => {
+          copyBtn.textContent = '📋 複製連結';
+        }, 2000);
       }
     });
 
@@ -436,15 +758,30 @@ class GameApp {
       this.startLevel(this.currentLevelIdx, { preserveScore: false });
     });
 
+    document.getElementById('btn-clear-exit').addEventListener('click', () => {
+      this._exitToHome();
+    });
+
+    document.getElementById('btn-clear-lb-submit').addEventListener('click', () => {
+      this._submitLeaderboardFrom('clear');
+    });
+
     document.getElementById('btn-gameover-retry').addEventListener('click', () => {
       audio.unlock();
       this.startLevel(this.currentLevelIdx, { preserveScore: false });
     });
 
     document.getElementById('btn-gameover-levels').addEventListener('click', () => {
-      this._hideSubModals();
       this._renderLevelSelectGrid();
-      document.getElementById('levels-modal').classList.remove('hidden');
+      this._openOverlayModal('levels-modal', { returnTo: 'gameover-modal' });
+    });
+
+    document.getElementById('btn-gameover-exit').addEventListener('click', () => {
+      this._exitToHome();
+    });
+
+    document.getElementById('btn-gameover-lb-submit').addEventListener('click', () => {
+      this._submitLeaderboardFrom('gameover');
     });
   }
 
@@ -462,6 +799,10 @@ class GameApp {
 
     window.addEventListener('keydown', (e) => {
       audio.unlock();
+
+      if (['INPUT', 'TEXTAREA'].includes(e.target?.tagName)) {
+        return;
+      }
 
       if (this._anyModalBlockingMaze()) {
         return;

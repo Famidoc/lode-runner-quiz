@@ -30,6 +30,8 @@
 
       <div class="hud-actions">
         <button type="button" class="tool-btn" id="btn-levels" title="選擇關卡">🗺️ 關卡</button>
+        <button type="button" class="tool-btn" id="btn-leaderboard" title="全球排行榜">🏆 排行</button>
+        <button type="button" class="tool-btn" id="btn-qrcode" title="手機掃碼下載遊戲">📱 掃碼</button>
         <button type="button" class="tool-btn" id="btn-pause" title="暫停 (P)">⏸ 暫停</button>
         <button type="button" class="tool-btn" id="btn-retry" title="重試本關 (R)">🔄 重試</button>
         <button type="button" class="tool-btn" id="btn-mute" title="切換音效">🔊 音效</button>
@@ -102,7 +104,7 @@
       <div class="start-trio">
         <div class="trio-item plant"><strong>🌿 捻花惹草</strong><span>15 秒看圖四選一</span></div>
         <div class="trio-item sudoku"><strong>🔢 數獨共享</strong><span>45 秒殘局關鍵填空</span></div>
-        <div class="trio-item medical"><strong>🩺 加減學學</strong><span>15 秒家醫健康快問答</span></div>
+        <div class="trio-item medical"><strong>🩺 加減學學</strong><span>30 秒家醫健康快問答</span></div>
       </div>
       <div class="start-rules">
         <p>• 觸碰寶箱時時間將自動凍結；答對獲得 <strong>1.8 秒無敵閃爍</strong> 脫離險境。</p>
@@ -113,6 +115,11 @@
       <div class="modal-btn-row">
         <button type="button" class="btn-primary" id="btn-start-play">▶ 開始冒險</button>
         <button type="button" class="btn-secondary" id="btn-open-levels-from-start">🗺️ 選擇關卡</button>
+      </div>
+      <div class="modal-sub-actions">
+        <button type="button" class="btn-ghost" id="btn-open-lb-from-start">🏆 查看排行榜</button>
+        <button type="button" class="btn-ghost" id="btn-open-qr-from-start">📱 手機掃碼下載</button>
+        <button type="button" class="btn-ghost btn-install hidden" id="btn-pwa-install-start">⬇️ 安裝 App</button>
       </div>
     </div>
   </div>
@@ -155,9 +162,18 @@
       </div>
       <h3 class="review-heading">📚 本關知識尋寶回顧</h3>
       <div class="clear-review-list" id="clear-review-list"></div>
+      <div class="lb-submit-box" id="clear-lb-box">
+        <div class="lb-submit-title">🏆 登錄分數至英雄排行榜</div>
+        <div class="lb-input-row">
+          <input type="text" id="clear-lb-name" class="lb-name-input" maxlength="16" placeholder="輸入玩家暱稱（最多 16 字）" autocomplete="nickname" />
+          <button type="button" class="btn-lb-submit" id="btn-clear-lb-submit">🏆 登錄分數</button>
+        </div>
+        <div class="lb-submit-status hidden" id="clear-lb-status"></div>
+      </div>
       <div class="modal-btn-row">
         <button type="button" class="btn-primary" id="btn-next-level">▶ 進入下一關</button>
         <button type="button" class="btn-secondary" id="btn-replay-level">🔄 重玩本關</button>
+        <button type="button" class="btn-exit" id="btn-clear-exit">🚪 離開遊戲</button>
       </div>
     </div>
   </div>
@@ -171,9 +187,61 @@
         <div class="clear-stat"><span>本局分數</span><strong id="gameover-score">0</strong></div>
         <div class="clear-stat"><span>歷史最高</span><strong id="gameover-best">0</strong></div>
       </div>
+      <div class="lb-submit-box" id="gameover-lb-box">
+        <div class="lb-submit-title">🏆 登錄目前積分至英雄排行榜</div>
+        <div class="lb-input-row">
+          <input type="text" id="gameover-lb-name" class="lb-name-input" maxlength="16" placeholder="輸入玩家暱稱（最多 16 字）" autocomplete="nickname" />
+          <button type="button" class="btn-lb-submit" id="btn-gameover-lb-submit">🏆 登錄分數</button>
+        </div>
+        <div class="lb-submit-status hidden" id="gameover-lb-status"></div>
+      </div>
       <div class="modal-btn-row">
         <button type="button" class="btn-primary" id="btn-gameover-retry">🔄 再戰本關</button>
         <button type="button" class="btn-secondary" id="btn-gameover-levels">🗺️ 選擇關卡</button>
+        <button type="button" class="btn-exit" id="btn-gameover-exit">🚪 離開遊戲</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6. 全球／本機英雄排行榜彈窗 -->
+  <div class="modal-backdrop hidden" id="leaderboard-modal">
+    <div class="modal-card lb-card">
+      <div class="modal-head-row">
+        <div class="lb-title-group">
+          <h2>🏆 知識尋寶・英雄排行榜</h2>
+          <span class="lb-mode-badge local" id="lb-mode-badge">讀取中…</span>
+        </div>
+        <div class="lb-head-actions">
+          <button type="button" class="tool-btn" id="btn-lb-refresh" title="重新整理排行">🔄 更新</button>
+          <button type="button" class="btn-close-x" id="btn-close-leaderboard" aria-label="關閉排行榜">✕</button>
+        </div>
+      </div>
+      <div class="lb-my-summary" id="lb-my-summary"></div>
+      <div class="lb-list" id="leaderboard-list">
+        <div class="lb-empty">正在載入排行榜…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7. 手機掃碼下載 QR Code 彈窗 -->
+  <div class="modal-backdrop hidden" id="qr-modal">
+    <div class="modal-card qr-card">
+      <div class="modal-head-row">
+        <h2>📱 手機掃碼遊玩／安裝遊戲</h2>
+        <button type="button" class="btn-close-x" id="btn-close-qr" aria-label="關閉 QR Code">✕</button>
+      </div>
+      <p class="qr-desc">使用手機相機掃描下方 QR Code，即可立即開啟遊玩並加入主畫面離線暢玩：</p>
+      <div class="qr-stage">
+        <div class="qr-box" id="qr-svg-wrap"></div>
+      </div>
+      <p class="qr-url" id="qr-url-text"></p>
+      <div class="modal-btn-row">
+        <button type="button" class="btn-primary" id="btn-qr-copy">📋 複製連結</button>
+        <button type="button" class="btn-secondary hidden" id="btn-pwa-install-qr">⬇️ 直接安裝 App</button>
+      </div>
+      <div class="qr-install-tips">
+        <div><strong>🍎 iPhone / iPad (Safari)：</strong>點選下方「分享 ⬆️」→「加入主畫面」</div>
+        <div><strong>🤖 Android (Chrome)：</strong>點選右上「⋮ 選單」→「安裝應用程式 / 加到主畫面」</div>
       </div>
     </div>
   </div>

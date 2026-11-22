@@ -444,19 +444,29 @@ html, body {
 
 .modal-btn-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   margin-top: 12px;
 }
 
 .btn-primary,
-.btn-secondary {
-  flex: 1;
+.btn-secondary,
+.btn-exit {
+  flex: 1 1 130px;
   border: none;
   border-radius: 12px;
-  padding: 12px 14px;
-  font-size: 0.95rem;
+  padding: 11px 12px;
+  font-size: 0.92rem;
   font-weight: 700;
   cursor: pointer;
+  transition: transform 0.12s, filter 0.15s;
+}
+
+.btn-primary:active,
+.btn-secondary:active,
+.btn-exit:active,
+.btn-ghost:active {
+  transform: scale(0.97);
 }
 
 .btn-primary {
@@ -467,6 +477,46 @@ html, body {
 .btn-secondary {
   background: #334155;
   color: #f8fafc;
+}
+
+.btn-exit {
+  background: rgba(127, 29, 29, 0.35);
+  color: #fca5a5;
+  border: 1px solid rgba(248, 113, 113, 0.45);
+}
+
+.btn-exit:hover {
+  background: rgba(153, 27, 27, 0.52);
+}
+
+.modal-sub-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.btn-ghost {
+  flex: 1 1 140px;
+  background: rgba(30, 41, 59, 0.72);
+  color: #cbd5e1;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 10px;
+  padding: 9px 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-ghost:hover {
+  background: rgba(51, 65, 85, 0.85);
+  color: #f8fafc;
+}
+
+.btn-ghost.btn-install {
+  border-color: rgba(34, 197, 94, 0.5);
+  color: #86efac;
+  background: rgba(20, 83, 45, 0.35);
 }
 
 /* 答題彈窗 */
@@ -850,9 +900,13 @@ html, body {
   cursor: pointer;
 }
 
+.levels-card {
+  max-width: 660px;
+}
+
 .level-select-grid {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(2, 1fr);
   gap: 8px;
 }
 
@@ -962,6 +1016,277 @@ html, body {
   word-break: break-word;
 }
 
+/* 結算內嵌排行榜登錄區 */
+.lb-submit-box {
+  margin-top: 12px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  background: rgba(30, 41, 59, 0.72);
+  border: 1px solid rgba(250, 204, 21, 0.3);
+}
+
+.lb-submit-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #fde047;
+  margin-bottom: 8px;
+}
+
+.lb-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.lb-name-input {
+  flex: 1;
+  min-width: 0;
+  background: #0f172a;
+  color: #f8fafc;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 9px;
+  padding: 8px 11px;
+  font-size: 0.9rem;
+}
+
+.lb-name-input:focus {
+  outline: none;
+  border-color: var(--accent-sky);
+}
+
+.btn-lb-submit {
+  flex-shrink: 0;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #0f172a;
+  border: none;
+  border-radius: 9px;
+  padding: 8px 13px;
+  font-size: 0.86rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.btn-lb-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.lb-submit-status {
+  margin-top: 8px;
+  font-size: 0.82rem;
+  color: #86efac;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.btn-inline-link {
+  background: transparent;
+  border: none;
+  color: var(--accent-sky);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+/* 排行榜彈窗 */
+.lb-card {
+  max-width: 580px;
+}
+
+.lb-title-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.lb-title-group h2 {
+  font-size: 1.25rem;
+}
+
+.lb-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lb-mode-badge {
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid;
+}
+
+.lb-mode-badge.cloud {
+  background: rgba(14, 165, 233, 0.18);
+  border-color: rgba(56, 189, 248, 0.55);
+  color: #7dd3fc;
+}
+
+.lb-mode-badge.local {
+  background: rgba(148, 163, 184, 0.16);
+  border-color: rgba(148, 163, 184, 0.4);
+  color: #cbd5e1;
+}
+
+.lb-my-summary {
+  background: rgba(2, 6, 23, 0.45);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 0.84rem;
+  color: #cbd5e1;
+  margin-bottom: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.lb-my-summary strong {
+  color: var(--accent-gold);
+}
+
+.lb-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  max-height: 52vh;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.lb-empty {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 24px 12px;
+  font-size: 0.9rem;
+}
+
+.lb-row {
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 11px;
+  background: rgba(30, 41, 59, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.lb-row.top-1 {
+  background: rgba(250, 204, 21, 0.14);
+  border-color: rgba(250, 204, 21, 0.48);
+}
+
+.lb-row.top-2 {
+  background: rgba(226, 232, 240, 0.1);
+  border-color: rgba(203, 213, 225, 0.42);
+}
+
+.lb-row.top-3 {
+  background: rgba(251, 146, 60, 0.12);
+  border-color: rgba(251, 146, 60, 0.45);
+}
+
+.lb-row.is-me {
+  box-shadow: inset 0 0 0 1.5px rgba(56, 189, 248, 0.7);
+}
+
+.lb-rank {
+  font-size: 1.05rem;
+  font-weight: 800;
+  text-align: center;
+  color: #e2e8f0;
+}
+
+.lb-player-info {
+  min-width: 0;
+}
+
+.lb-player-name {
+  font-weight: 700;
+  font-size: 0.94rem;
+  color: #f8fafc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lb-player-meta {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.lb-score-val {
+  font-family: monospace;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--accent-gold);
+}
+
+/* QR Code 掃碼彈窗 */
+.qr-card {
+  max-width: 460px;
+  text-align: center;
+}
+
+.qr-desc {
+  font-size: 0.88rem;
+  color: #cbd5e1;
+  margin-bottom: 12px;
+}
+
+.qr-stage {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
+.qr-box {
+  background: #ffffff;
+  padding: 12px;
+  border-radius: 16px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.4);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.qr-box svg {
+  display: block;
+  width: 210px;
+  height: 210px;
+}
+
+.qr-url {
+  font-size: 0.78rem;
+  color: var(--accent-sky);
+  word-break: break-all;
+  background: rgba(2, 6, 23, 0.45);
+  border-radius: 8px;
+  padding: 6px 10px;
+  margin-bottom: 6px;
+}
+
+.qr-install-tips {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(30, 41, 59, 0.7);
+  font-size: 0.78rem;
+  color: #cbd5e1;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
 .hidden {
   display: none !important;
 }
@@ -971,6 +1296,18 @@ html, body {
   .app-shell {
     padding: 8px 8px 16px;
     gap: 8px;
+  }
+
+  .hud-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .hud-actions .tool-btn {
+    flex: 1 1 auto;
+    padding: 5px 6px;
+    font-size: 0.75rem;
+    text-align: center;
   }
 
   .kb-hint {
@@ -990,5 +1327,15 @@ html, body {
   .start-trio,
   .quiz-options-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .level-select-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .lb-input-row {
+    flex-direction: column;
   }
 }

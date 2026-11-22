@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lr-quiz-v5';
+const CACHE_NAME = 'lr-quiz-v6';
 
 const APP_SHELL = [
   './',
@@ -9,6 +9,8 @@ const APP_SHELL = [
   './js/config.js',
   './js/audio.js',
   './js/storage.js',
+  './js/qrcode.js',
+  './js/leaderboard.js',
   './js/dataLoader.js',
   './js/sudokuEngine.js',
   './js/pathfinding.js',

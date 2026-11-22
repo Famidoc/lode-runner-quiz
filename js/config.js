@@ -53,7 +53,7 @@ export const PHYSICS = Object.freeze({
 export const QUIZ_TIME = Object.freeze({
   plant: 15,
   sudoku: 45,
-  medical: 15
+  medical: 30
 });
 
 // 知識寶箱視覺與標籤設定
@@ -98,9 +98,25 @@ export const SCORE = Object.freeze({
 
 // 外部生態網站與預留 GAS / API 串接點
 export const ECOSYSTEM = Object.freeze({
+  GAME_SITE_URL: 'https://famidoc.github.io/lode-runner-quiz/',
   PLANTS_SITE_URL: 'https://famidoc.github.io/plants/',
   SUDOKU_SITE_URL: 'https://famidoc.github.io/sudoku/sudoku.html',
   YOUTUBE_SEARCH_URL: 'https://www.youtube.com/results?search_query=%E5%8A%A0%E6%B8%9B%E5%AD%B8%E5%AD%B8+%E5%BC%B5%E6%96%87%E8%8F%AF'
+});
+
+// 雲端排行榜設定（共用既有 Firebase 專案並採獨立命名空間，與數獨完全隔離）
+export const LEADERBOARD_CONFIG = Object.freeze({
+  appId: 'lode-runner-quiz',
+  collectionPath: ['artifacts', 'lode-runner-quiz', 'public', 'data', 'leaderboards'],
+  maxDisplay: 30,
+  firebaseConfig: {
+    apiKey: 'AIzaSyA-1IsmCIMonv1gtTyBatAN5xaPgGxV-F8',
+    authDomain: 'sudoku-hub-20df8.firebaseapp.com',
+    projectId: 'sudoku-hub-20df8',
+    storageBucket: 'sudoku-hub-20df8.firebasestorage.app',
+    messagingSenderId: '137178297315',
+    appId: '1:137178297315:web:340d1592423be29e1566d6'
+  }
 });
 
 export const API_ENDPOINTS = Object.freeze({
