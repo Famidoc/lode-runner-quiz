@@ -2,6 +2,8 @@
  * 知識尋寶《Lode Runner》全域常數與生態串接設定
  */
 
+export const APP_VERSION = 'v1.1.0';
+
 export const COLS = 20;
 export const ROWS = 12;
 export const TILE_SIZE = 48; // 960 x 576 畫布內部分辨率

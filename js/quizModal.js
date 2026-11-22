@@ -33,6 +33,7 @@ export class QuizModalController {
 
     this.active = false;
     this.finished = false;
+    this.awaitingMedia = false;
     this.mode = null; // 'plant' | 'sudoku' | 'medical'
     this.timeLimit = 15;
     this.timeLeft = 15;
@@ -55,6 +56,7 @@ export class QuizModalController {
   closeImmediately() {
     this.active = false;
     this.finished = true;
+    this.awaitingMedia = false;
     cancelAnimationFrame(this.rafId);
     clearTimeout(this.autoCloseTimer);
     this.overlayEl.classList.add('hidden');
@@ -68,6 +70,7 @@ export class QuizModalController {
 
     this.active = true;
     this.finished = false;
+    this.awaitingMedia = false;
     this.mode = type;
     this.currentPayload = payload;
     this.timeLimit = QUIZ_TIME[type] || 15;
@@ -153,22 +156,26 @@ export class QuizModalController {
     `;
 
     const optionsEl = document.getElementById('quiz-options');
+    const isMediaLoading = Boolean(preloadResult && preloadResult.status === 'loading');
+    this.awaitingMedia = isMediaLoading;
+
     options.forEach((optName, idx) => {
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'quiz-opt-btn';
+      btn.className = `quiz-opt-btn${isMediaLoading ? ' loading-locked' : ''}`;
       btn.dataset.index = String(idx);
-      btn.innerHTML = `<span class="opt-key">${idx + 1}</span><span>${optName}</span>`;
+      btn.disabled = isMediaLoading;
+      btn.innerHTML = `<span class="opt-key">${idx + 1}</span><span>${escapeHtml(optName)}</span>`;
       btn.addEventListener('click', () => this._submitPlantChoice(idx, target, options));
       optionsEl.appendChild(btn);
     });
 
-    // 等預載圖片就緒（含安全超時 4.5s）再啟動倒數
+    // 等預載圖片就緒（含安全超時 4.5s）再啟動倒數與開放作答
     const photoBox = document.getElementById('plant-photo-box');
     const loadingMsg = document.getElementById('plant-loading-msg');
 
     let finalResult = preloadResult;
-    if (finalResult && finalResult.status === 'loading') {
+    if (isMediaLoading) {
       finalResult = await Promise.race([
         finalResult.promise,
         new Promise((resolve) =>
@@ -177,7 +184,13 @@ export class QuizModalController {
       ]);
     }
 
-    if (!this.active) return;
+    if (!this.active || this.finished) return;
+
+    this.awaitingMedia = false;
+    this.bodyEl.querySelectorAll('.quiz-opt-btn').forEach((btn) => {
+      btn.disabled = false;
+      btn.classList.remove('loading-locked');
+    });
 
     if (finalResult && finalResult.status === 'ready' && finalResult.loadedUrl) {
       const img = document.createElement('img');
@@ -192,8 +205,8 @@ export class QuizModalController {
         <div class="plant-offline-fallback">
           <div style="font-size:2rem;margin-bottom:6px;">🌿</div>
           <div><strong>照片離線或連線受限，啟用形態線索模式</strong></div>
-          <div style="margin-top:6px;color:#cbd5e1;font-size:0.9rem;">${target.family || ''}</div>
-          <div style="margin-top:4px;color:#86efac;font-size:0.92rem;">${target.hint || '台灣常見庭園與野外植栽'}</div>
+          <div style="margin-top:6px;color:#cbd5e1;font-size:0.9rem;">${escapeHtml(target.family || '')}</div>
+          <div style="margin-top:4px;color:#86efac;font-size:0.92rem;">${escapeHtml(target.hint || '台灣常見庭園與野外植栽')}</div>
         </div>
       `;
     }
@@ -202,7 +215,7 @@ export class QuizModalController {
   }
 
   _submitPlantChoice(chosenIdx, target, options) {
-    if (this.finished) return;
+    if (this.finished || this.awaitingMedia) return;
     this.finished = true;
     cancelAnimationFrame(this.rafId);
 
@@ -217,9 +230,11 @@ export class QuizModalController {
     const fb = document.getElementById('quiz-feedback');
     fb.classList.remove('hidden');
     fb.className = `quiz-feedback ${isCorrect ? 'ok' : 'fail'}`;
+    const safeName = escapeHtml(target.name);
+    const safeFamily = escapeHtml(target.family || '植物圖鑑');
     fb.innerHTML = isCorrect
-      ? `✅ 答對了！正是 <strong>${target.name}</strong>（${target.family || '植物圖鑑'}）`
-      : `❌ 惜敗！正確答案是 <strong>${target.name}</strong>（${target.family || ''}）`;
+      ? `✅ 答對了！正是 <strong>${safeName}</strong>（${safeFamily}）`
+      : `❌ 惜敗！正確答案是 <strong>${safeName}</strong>（${target.family ? escapeHtml(target.family) : ''}）`;
 
     this._finishAfterDelay(isCorrect, 1050);
   }
@@ -245,7 +260,7 @@ export class QuizModalController {
     this.bodyEl.innerHTML = `
       <div class="sudoku-quiz-wrap">
         <div class="sudoku-meta-row">
-          <span>${this.sudokuState.puzzleIcon} ${this.sudokuState.puzzleName}</span>
+          <span>${escapeHtml(this.sudokuState.puzzleIcon)} ${escapeHtml(this.sudokuState.puzzleName)}</span>
           <span class="sudoku-remain-badge" id="sudoku-remain-badge">剩餘 ${endgame.holeCount} 格</span>
         </div>
         <div class="sudoku-board" id="sudoku-board" role="grid" aria-label="數獨殘局盤面"></div>
@@ -396,8 +411,8 @@ export class QuizModalController {
   _renderMedicalQuiz(medItem) {
     this.bodyEl.innerHTML = `
       <div class="medical-quiz-wrap">
-        <div class="med-cat-pill">🩺 ${medItem.category}</div>
-        <h3 class="med-question">${medItem.question}</h3>
+        <div class="med-cat-pill">🩺 ${escapeHtml(medItem.category)}</div>
+        <h3 class="med-question">${escapeHtml(medItem.question)}</h3>
         <div class="quiz-options-grid single-col" id="quiz-options"></div>
         <div class="med-explanation hidden" id="med-explanation"></div>
       </div>
@@ -408,7 +423,7 @@ export class QuizModalController {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'quiz-opt-btn';
-      btn.innerHTML = `<span class="opt-key">${idx + 1}</span><span>${optText}</span>`;
+      btn.innerHTML = `<span class="opt-key">${idx + 1}</span><span>${escapeHtml(optText)}</span>`;
       btn.addEventListener('click', () => this._submitMedicalChoice(idx, medItem));
       optionsEl.appendChild(btn);
     });
@@ -448,7 +463,7 @@ export class QuizModalController {
 
     expEl.innerHTML = `
       <div class="med-exp-head">${statusLine}</div>
-      <p class="med-exp-text">${medItem.explanation}</p>
+      <p class="med-exp-text">${escapeHtml(medItem.explanation)}</p>
       <div class="med-exp-actions">
         ${
           medItem.videoUrl
@@ -498,7 +513,7 @@ export class QuizModalController {
       fb.classList.remove('hidden');
       fb.className = 'quiz-feedback fail';
       if (this.mode === 'plant' && this.currentPayload?.target) {
-        fb.innerHTML = `⏰ 超時了！正確答案是 <strong>${this.currentPayload.target.name}</strong>，守衛開始加速追擊！`;
+        fb.innerHTML = `⏰ 超時了！正確答案是 <strong>${escapeHtml(this.currentPayload.target.name)}</strong>，守衛開始加速追擊！`;
       } else {
         fb.textContent = '⏰ 作答時間到！護盾破裂，守衛開始加速追擊！';
       }
@@ -521,6 +536,8 @@ export class QuizModalController {
       }
       return;
     }
+
+    if (this.awaitingMedia) return;
 
     if (this.mode === 'plant' || this.mode === 'medical') {
       const idx = Number(e.key) - 1;

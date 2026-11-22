@@ -2,7 +2,7 @@
  * 知識尋寶《Lode Runner》主控程式與 UI 綁定
  */
 
-import { GAME_STATE, ECOSYSTEM } from './config.js';
+import { GAME_STATE, ECOSYSTEM, APP_VERSION } from './config.js';
 import { audio } from './audio.js';
 import { storage } from './storage.js';
 import { loadAllGameData, preloadPlantImage } from './dataLoader.js';
@@ -20,6 +20,15 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function shuffleArray(list) {
+  const arr = list.slice();
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
 }
 
 function formatDuration(sec) {
@@ -45,6 +54,15 @@ class GameApp {
     this._returnToModalId = null;
     this._lastResultSummary = null;
     this._submittingLb = false;
+    this._confirmCallback = null;
+    this._lastRenderSignature = '';
+    this._forceRenderNextFrame = true;
+    this._clearDpadVisuals = () => {};
+    this.sessionSeen = {
+      plant: new Set(),
+      sudoku: new Set(),
+      medical: new Set()
+    };
 
     this.engine = new LodeRunnerEngine({
       onHudUpdate: (snap) => this._updateHud(snap),
@@ -58,9 +76,14 @@ class GameApp {
     this._bindKeyboard();
     this._bindTouchControls();
     this._bindPwaInstall();
+    this._bindLifecycleAutoPause();
   }
 
   async init() {
+    const verEl = document.getElementById('app-version');
+    if (verEl) verEl.textContent = `(${APP_VERSION})`;
+    this._checkInAppBrowser();
+
     audio.setMuted(this.saveData.muted);
     this._updateMuteBtn();
     this._updateHighScoreUI();
@@ -89,49 +112,86 @@ class GameApp {
 
   _startLoop() {
     const tick = (now) => {
+      if (document.hidden) {
+        this.lastFrameTime = now;
+        requestAnimationFrame(tick);
+        return;
+      }
+
       const dt = (now - this.lastFrameTime) / 1000;
       this.lastFrameTime = now;
 
       this.engine.update(dt);
-      this.renderer.render(this.engine, now);
+
+      const st = this.engine.state;
+      const needsActiveRedraw =
+        this._forceRenderNextFrame ||
+        st === GAME_STATE.PLAYING ||
+        st === GAME_STATE.READY ||
+        this.engine.particles.length > 0 ||
+        this.engine.floatingTexts.length > 0 ||
+        this.engine.bannerTimer > 0;
+
+      const sig = `${st}|${this.engine.level?.id || 0}|${this.engine.score}|${this.engine.lives}|${this.engine.exitActive}|${this.engine.frenzyTimer > 0}`;
+      if (needsActiveRedraw || sig !== this._lastRenderSignature) {
+        this.renderer.render(this.engine, now);
+        this._lastRenderSignature = sig;
+        this._forceRenderNextFrame = false;
+      }
 
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
   }
 
+  _pickSessionItem(type, allItems, wrongPool = []) {
+    if (!Array.isArray(allItems) || allItems.length === 0) return null;
+    const seen = this.sessionSeen[type];
+    let picked = null;
+
+    if (wrongPool.length > 0 && Math.random() < 0.45) {
+      const unseenWrong = wrongPool
+        .filter((id) => !seen.has(id))
+        .map((id) => allItems.find((item) => item.id === id))
+        .filter(Boolean);
+      if (unseenWrong.length > 0) {
+        picked = unseenWrong[Math.floor(Math.random() * unseenWrong.length)];
+      }
+    }
+
+    if (!picked) {
+      let unseen = allItems.filter((item) => !seen.has(item.id));
+      if (unseen.length === 0) {
+        seen.clear();
+        unseen = allItems;
+      }
+      picked = unseen[Math.floor(Math.random() * unseen.length)];
+    }
+
+    if (picked?.id) {
+      seen.add(picked.id);
+    }
+    return picked;
+  }
+
   /**
-   * 為本關抽取三大知識題點並立即預載花草圖片
+   * 為本關抽取三大知識題點（含本趟不重複與錯題複習）並立即預載花草圖片
    */
   _prepareLevelQuestions(levelObj) {
     const { plants, sudokus, medical } = this.gameData;
 
-    // 1. 題點 A：捻花惹草（優先複習錯題池）
-    let targetPlant = null;
-    if (this.saveData.plantWrongPool.length > 0 && Math.random() < 0.5) {
-      const wrongPickId =
-        this.saveData.plantWrongPool[
-          Math.floor(Math.random() * this.saveData.plantWrongPool.length)
-        ];
-      targetPlant = plants.find((p) => p.id === wrongPickId) || null;
-    }
-    if (!targetPlant) {
-      targetPlant = plants[Math.floor(Math.random() * plants.length)];
-    }
-
-    const distractors = plants
-      .filter((p) => p.id !== targetPlant.id)
-      .sort(() => Math.random() - 0.5)
-      .slice(0, 3);
-    const plantOptions = [targetPlant.name, ...distractors.map((d) => d.name)].sort(
-      () => Math.random() - 0.5
-    );
+    // 1. 題點 A：捻花惹草（優先複習未於本趟出現的錯題）
+    const targetPlant = this._pickSessionItem('plant', plants, this.saveData.plantWrongPool);
+    const distractors = shuffleArray(
+      plants.filter((p) => p.id !== targetPlant.id && p.name !== targetPlant.name)
+    ).slice(0, 3);
+    const plantOptions = shuffleArray([targetPlant.name, ...distractors.map((d) => d.name)]);
     const plantPreload = preloadPlantImage(targetPlant);
 
-    // 2. 題點 B：數獨殘局
+    // 2. 題點 B：數獨殘局（同趟盡量不重複）
     const sudokuObj =
       sudokus && sudokus.length > 0
-        ? sudokus[Math.floor(Math.random() * sudokus.length)]
+        ? this._pickSessionItem('sudoku', sudokus)
         : {
             id: 'fallback',
             name: '經典隨機盤面',
@@ -139,18 +199,8 @@ class GameApp {
             solution: generateFallbackSolvedBoard()
           };
 
-    // 3. 題點 C：加減學學（優先複習錯題池）
-    let medObj = null;
-    if (this.saveData.medicalWrongPool.length > 0 && Math.random() < 0.5) {
-      const wrongMedId =
-        this.saveData.medicalWrongPool[
-          Math.floor(Math.random() * this.saveData.medicalWrongPool.length)
-        ];
-      medObj = medical.find((m) => m.id === wrongMedId) || null;
-    }
-    if (!medObj) {
-      medObj = medical[Math.floor(Math.random() * medical.length)];
-    }
+    // 3. 題點 C：加減學學（優先複習未於本趟出現的錯題）
+    const medObj = this._pickSessionItem('medical', medical, this.saveData.medicalWrongPool);
 
     this.levelRunQuestions = {
       plant: {
@@ -172,11 +222,20 @@ class GameApp {
     this.currentLevelIdx = Math.max(0, Math.min(total - 1, levelIdx));
     const levelObj = this.gameData.levels[this.currentLevelIdx];
 
+    if (!preserveScore) {
+      this.sessionSeen.plant.clear();
+      this.sessionSeen.sudoku.clear();
+      this.sessionSeen.medical.clear();
+    }
+
     this._prepareLevelQuestions(levelObj);
     this._modalPausedGame = false;
     this._returnToModalId = null;
+    this._confirmCallback = null;
+    this._clearDpadVisuals();
     this._hideSubModals();
     this.engine.loadLevel(levelObj, { preserveScore, waitForStart });
+    this._forceRenderNextFrame = true;
     this._updateHud(this.engine.getHudSnapshot());
     this._syncReadyOverlay();
   }
@@ -283,8 +342,8 @@ class GameApp {
     reviewEl.innerHTML = `
       <div class="review-card plant">
         <div class="review-label">🌿 捻花惹草</div>
-        <div class="review-main"><strong>${q.plant.target.name}</strong>（${q.plant.target.family || '植物圖鑑'}）</div>
-        <a href="${plantLink}" target="_blank" rel="noopener" class="review-link">前往圖鑑看詳情 →</a>
+        <div class="review-main"><strong>${escapeHtml(q.plant.target.name)}</strong>（${escapeHtml(q.plant.target.family || '植物圖鑑')}）</div>
+        <a href="${escapeHtml(plantLink)}" target="_blank" rel="noopener" class="review-link">前往圖鑑看詳情 →</a>
       </div>
       <div class="review-card sudoku">
         <div class="review-label">🔢 數獨共享平台</div>
@@ -293,7 +352,7 @@ class GameApp {
       </div>
       <div class="review-card medical">
         <div class="review-label">🩺 加減學學家醫觀念</div>
-        <div class="review-main">${q.medical.explanation}</div>
+        <div class="review-main">${escapeHtml(q.medical.explanation)}</div>
         <a href="${escapeHtml(medUrl)}" target="_blank" rel="noopener" class="review-link">${medLinkLabel}</a>
       </div>
     `;
@@ -420,7 +479,7 @@ class GameApp {
             : `已登錄單關成績 ${career.scoredLevelsCount} / ${total} 關`;
       careerBar.innerHTML = `
         <span>🏅 ${total} 關累計總積分：<strong>${career.careerScore} 分</strong></span>
-        <span>${hint}</span>
+        <span>${escapeHtml(hint)}</span>
       `;
     }
 
@@ -443,9 +502,9 @@ class GameApp {
 
       card.innerHTML = `
         <div class="level-card-num">第 ${lvl.id} 關 ${rec?.cleared ? '✅' : unlocked ? '' : '🔒'}</div>
-        <div class="level-card-title">${lvl.name}</div>
+        <div class="level-card-title">${escapeHtml(lvl.name)}</div>
         <div class="level-card-meta">守衛 ${lvl.ghosts.length} 名・數獨 ${lvl.sudokuHoles} 格</div>
-        <div class="level-card-best">${bestLine}</div>
+        <div class="level-card-best">${escapeHtml(bestLine)}</div>
       `;
       card.addEventListener('click', () => {
         audio.unlock();
@@ -471,7 +530,8 @@ class GameApp {
       'clear-modal',
       'gameover-modal',
       'leaderboard-modal',
-      'qr-modal'
+      'qr-modal',
+      'confirm-modal'
     ].forEach((id) => {
       document.getElementById(id)?.classList.add('hidden');
     });
@@ -485,7 +545,8 @@ class GameApp {
       'clear-modal',
       'gameover-modal',
       'leaderboard-modal',
-      'qr-modal'
+      'qr-modal',
+      'confirm-modal'
     ].some((id) => !document.getElementById(id)?.classList.contains('hidden'));
   }
 
@@ -547,8 +608,10 @@ class GameApp {
   _exitToHome() {
     audio.unlock();
     this.engine.clearInputs();
+    this._clearDpadVisuals();
     this._modalPausedGame = false;
     this._returnToModalId = null;
+    this._confirmCallback = null;
     this._hideSubModals();
 
     const total = this.gameData?.levels?.length || 1;
@@ -556,6 +619,145 @@ class GameApp {
     this.startLevel(unlockedIdx, { preserveScore: false, waitForStart: true });
     this._showStartOverlay();
     this._syncReadyOverlay();
+  }
+
+  _openConfirmModal({ title, message, okText = '確定', onConfirm }) {
+    if (this.quizModal.isOpen()) return;
+    const titleEl = document.getElementById('confirm-title');
+    const msgEl = document.getElementById('confirm-message');
+    const okBtn = document.getElementById('btn-confirm-ok');
+    if (titleEl) titleEl.textContent = title || '⚠️ 確認操作';
+    if (msgEl) msgEl.textContent = message || '';
+    if (okBtn) okBtn.textContent = okText;
+
+    this._confirmCallback = typeof onConfirm === 'function' ? onConfirm : null;
+    this._openOverlayModal('confirm-modal');
+  }
+
+  _requestRetryCurrentLevel({ waitForStart = false } = {}) {
+    if (this.quizModal.isOpen()) return;
+    if ((this.engine.score || 0) <= 0) {
+      this.startLevel(this.currentLevelIdx, { preserveScore: false, waitForStart });
+      return;
+    }
+
+    this._openConfirmModal({
+      title: '🔄 重新挑戰本關？',
+      message: `目前連續闖關總分為 ${this.engine.score} 分。重試本關將從第 ${this.engine.level?.id || 1} 關重新計算（連關分數會歸零），確定要重試嗎？`,
+      okText: '確定重試',
+      onConfirm: () => {
+        this.startLevel(this.currentLevelIdx, { preserveScore: false, waitForStart });
+      }
+    });
+  }
+
+  _checkInAppBrowser() {
+    const banner = document.getElementById('inapp-browser-banner');
+    if (!banner) return;
+    let dismissed = false;
+    try {
+      dismissed = sessionStorage.getItem('lr_inapp_dismissed') === '1';
+    } catch (_) {
+      dismissed = false;
+    }
+    const ua = navigator.userAgent || '';
+    const isInApp = /\b(Line\/|FBAN|FBAV|FB_IAB|Instagram|MicroMessenger)\b/i.test(ua);
+    if (isInApp && !dismissed) {
+      banner.classList.remove('hidden');
+    }
+
+    document.getElementById('btn-close-inapp-banner')?.addEventListener('click', () => {
+      banner.classList.add('hidden');
+      try {
+        sessionStorage.setItem('lr_inapp_dismissed', '1');
+      } catch (_) {}
+    });
+  }
+
+  _handleAppBackground() {
+    this.engine.clearInputs();
+    this._clearDpadVisuals();
+    if (this.engine.state === GAME_STATE.PLAYING) {
+      this.engine.togglePause();
+    }
+  }
+
+  _bindLifecycleAutoPause() {
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        this._handleAppBackground();
+      }
+    });
+    window.addEventListener('blur', () => {
+      this._handleAppBackground();
+    });
+    window.addEventListener('pagehide', () => {
+      this._handleAppBackground();
+    });
+  }
+
+  async _copyTextToClipboard(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (_) {
+      const tmp = document.createElement('textarea');
+      tmp.value = text;
+      tmp.setAttribute('readonly', '');
+      tmp.style.position = 'fixed';
+      tmp.style.opacity = '0';
+      document.body.appendChild(tmp);
+      tmp.select();
+      document.execCommand('copy');
+      tmp.remove();
+    }
+  }
+
+  _buildScoreShareText(context) {
+    const summary = this._lastResultSummary || {};
+    const totalLevels = this.gameData?.levels?.length || 12;
+    const score = summary.score ?? this.engine.score ?? 0;
+    const maxLv = summary.maxLevel || this.engine.level?.id || 1;
+    const singleScore = summary.levelScore ?? 0;
+    const timeText = summary.runElapsedSec
+      ? formatDuration(summary.runElapsedSec)
+      : formatDuration(summary.elapsedSec || 0);
+
+    if (context === 'clear') {
+      if (summary.clearedAll) {
+        return `🏆 我全破了《知識尋寶 Lode Runner》全部 ${totalLevels} 關！連續闖關總分 ${score} 分（耗時 ${timeText}），邊玩邊答花草、數獨與家醫題，來挑戰我的紀錄吧！`;
+      }
+      return `🎉 我剛在《知識尋寶 Lode Runner》通過第 ${maxLv} 關！連續總分 ${score} 分（本關 ${singleScore} 分，耗時 ${timeText}），一起來動腦尋寶！`;
+    }
+
+    return `🎮 我在《知識尋寶 Lode Runner》推進到第 ${maxLv} 關、拿下 ${score} 分！快來邊閃守衛邊挑戰花草・數獨・家醫知識！`;
+  }
+
+  async _shareContent({ title, text, url, buttonEl, defaultLabel }) {
+    const shareUrl = url || this._getShareUrl();
+    let shared = false;
+
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+      try {
+        await navigator.share({ title, text, url: shareUrl });
+        shared = true;
+      } catch (err) {
+        if (err && err.name === 'AbortError') {
+          return;
+        }
+      }
+    }
+
+    if (!shared) {
+      const payload = text ? `${text}\n${shareUrl}` : shareUrl;
+      await this._copyTextToClipboard(payload);
+    }
+
+    if (buttonEl) {
+      buttonEl.textContent = shared ? '✅ 已分享！' : '✅ 已複製分享文！';
+      setTimeout(() => {
+        buttonEl.textContent = defaultLabel;
+      }, 2200);
+    }
   }
 
   _prepareLbSubmitBox(prefix, visible) {
@@ -835,22 +1037,44 @@ class GameApp {
     document.getElementById('btn-qr-copy').addEventListener('click', async () => {
       const url = this._getShareUrl();
       const copyBtn = document.getElementById('btn-qr-copy');
-      try {
-        await navigator.clipboard.writeText(url);
-      } catch (_) {
-        const tmp = document.createElement('textarea');
-        tmp.value = url;
-        document.body.appendChild(tmp);
-        tmp.select();
-        document.execCommand('copy');
-        tmp.remove();
-      }
+      await this._copyTextToClipboard(url);
       if (copyBtn) {
         copyBtn.textContent = '✅ 已複製網址！';
         setTimeout(() => {
           copyBtn.textContent = '📋 複製連結';
         }, 2000);
       }
+    });
+
+    document.getElementById('btn-qr-share')?.addEventListener('click', (e) => {
+      const url = this._getShareUrl();
+      this._shareContent({
+        title: '知識尋寶《Lode Runner》',
+        text: '推薦一款結合 1980s 淘金者、捻花惹草、數獨與加減學學衛教的離線 PWA 遊戲，手機直接就能玩！',
+        url,
+        buttonEl: e.currentTarget,
+        defaultLabel: '📤 分享給朋友'
+      });
+    });
+
+    document.getElementById('btn-clear-share')?.addEventListener('click', (e) => {
+      this._shareContent({
+        title: '知識尋寶《Lode Runner》戰績分享',
+        text: this._buildScoreShareText('clear'),
+        url: this._getShareUrl(),
+        buttonEl: e.currentTarget,
+        defaultLabel: '📤 分享戰績'
+      });
+    });
+
+    document.getElementById('btn-gameover-share')?.addEventListener('click', (e) => {
+      this._shareContent({
+        title: '知識尋寶《Lode Runner》戰績分享',
+        text: this._buildScoreShareText('gameover'),
+        url: this._getShareUrl(),
+        buttonEl: e.currentTarget,
+        defaultLabel: '📤 分享戰績'
+      });
     });
 
     document.getElementById('btn-pause').addEventListener('click', () => {
@@ -860,9 +1084,45 @@ class GameApp {
     });
 
     document.getElementById('btn-retry').addEventListener('click', () => {
-      if (this.quizModal.isOpen()) return;
       audio.unlock();
-      this.startLevel(this.currentLevelIdx, { preserveScore: false });
+      this._requestRetryCurrentLevel();
+    });
+
+    document.getElementById('btn-confirm-cancel')?.addEventListener('click', () => {
+      this._confirmCallback = null;
+      this._closeOverlayModal('confirm-modal');
+    });
+
+    document.getElementById('btn-confirm-ok')?.addEventListener('click', () => {
+      const cb = this._confirmCallback;
+      this._confirmCallback = null;
+      this._closeOverlayModal('confirm-modal');
+      if (typeof cb === 'function') {
+        cb();
+      }
+    });
+
+    ['levels-modal', 'leaderboard-modal', 'qr-modal', 'confirm-modal'].forEach((modalId) => {
+      const el = document.getElementById(modalId);
+      el?.addEventListener('click', (e) => {
+        if (e.target === el) {
+          if (modalId === 'confirm-modal') this._confirmCallback = null;
+          this._closeOverlayModal(modalId);
+        }
+      });
+    });
+
+    [
+      ['clear-lb-name', 'clear'],
+      ['gameover-lb-name', 'gameover']
+    ].forEach(([inputId, prefix]) => {
+      document.getElementById(inputId)?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.isComposing) {
+          e.preventDefault();
+          e.currentTarget.blur();
+          this._submitLeaderboardFrom(prefix);
+        }
+      });
     });
 
     document.getElementById('btn-mute').addEventListener('click', () => {
@@ -931,6 +1191,18 @@ class GameApp {
         return;
       }
 
+      if (e.code === 'Escape' && !this.quizModal.isOpen()) {
+        const dismissible = ['confirm-modal', 'qr-modal', 'leaderboard-modal', 'levels-modal'].find(
+          (id) => !document.getElementById(id)?.classList.contains('hidden')
+        );
+        if (dismissible) {
+          e.preventDefault();
+          if (dismissible === 'confirm-modal') this._confirmCallback = null;
+          this._closeOverlayModal(dismissible);
+          return;
+        }
+      }
+
       if (this._anyModalBlockingMaze()) {
         return;
       }
@@ -941,7 +1213,7 @@ class GameApp {
           this._startFromReady();
         } else if (e.code === 'KeyR') {
           e.preventDefault();
-          this.startLevel(this.currentLevelIdx, { preserveScore: false, waitForStart: true });
+          this._requestRetryCurrentLevel({ waitForStart: true });
         }
         return;
       }
@@ -972,7 +1244,7 @@ class GameApp {
 
       if (e.code === 'KeyR') {
         e.preventDefault();
-        this.startLevel(this.currentLevelIdx, { preserveScore: false });
+        this._requestRetryCurrentLevel();
       }
     });
 
@@ -981,33 +1253,110 @@ class GameApp {
         this.engine.setInput(keyMap[e.code], false);
       }
     });
-
-    window.addEventListener('blur', () => {
-      this.engine.clearInputs();
-    });
   }
 
   _bindTouchControls() {
-    const holdButtons = document.querySelectorAll('[data-move]');
-    holdButtons.forEach((btn) => {
-      const dir = btn.dataset.move;
-      const press = (e) => {
+    const touchPanel = document.querySelector('.touch-controls');
+    touchPanel?.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    const dpad = document.querySelector('.dpad');
+    const holdButtons = Array.from(document.querySelectorAll('[data-move]'));
+    const dirToBtn = new Map(holdButtons.map((b) => [b.dataset.move, b]));
+
+    let activePointerId = null;
+    let activeDir = null;
+
+    const setActiveDirection = (nextDir) => {
+      if (nextDir === activeDir) return;
+      if (activeDir) {
+        dirToBtn.get(activeDir)?.classList.remove('active');
+        this.engine.setInput(activeDir, false);
+      }
+      activeDir = nextDir;
+      if (activeDir) {
+        dirToBtn.get(activeDir)?.classList.add('active');
+        this.engine.setInput(activeDir, true);
+      }
+    };
+
+    this._clearDpadVisuals = () => {
+      activePointerId = null;
+      if (activeDir) {
+        dirToBtn.get(activeDir)?.classList.remove('active');
+        activeDir = null;
+      }
+      holdButtons.forEach((b) => b.classList.remove('active'));
+    };
+
+    const resolveDpadDir = (clientX, clientY) => {
+      const hitBtn = document.elementFromPoint(clientX, clientY)?.closest?.('[data-move]');
+      if (hitBtn && dpad?.contains(hitBtn)) {
+        return hitBtn.dataset.move;
+      }
+      if (!dpad) return null;
+
+      // 手指滑過按鈕間縫隙時，依最接近之方向鍵區域平滑判定
+      const padRect = dpad.getBoundingClientRect();
+      if (
+        clientX < padRect.left - 36 ||
+        clientX > padRect.right + 36 ||
+        clientY < padRect.top - 36 ||
+        clientY > padRect.bottom + 36
+      ) {
+        return null;
+      }
+
+      let bestDir = null;
+      let bestDist = Infinity;
+      for (const btn of holdButtons) {
+        const r = btn.getBoundingClientRect();
+        const cx = (r.left + r.right) / 2;
+        const cy = (r.top + r.bottom) / 2;
+        const dist = Math.hypot(clientX - cx, clientY - cy);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestDir = btn.dataset.move;
+        }
+      }
+      return bestDist <= 68 ? bestDir : null;
+    };
+
+    if (dpad) {
+      dpad.addEventListener('pointerdown', (e) => {
         e.preventDefault();
         audio.unlock();
-        btn.classList.add('active');
-        this.engine.setInput(dir, true);
-      };
-      const release = (e) => {
+        activePointerId = e.pointerId;
+        try {
+          dpad.setPointerCapture(e.pointerId);
+        } catch (_) {}
+        setActiveDirection(resolveDpadDir(e.clientX, e.clientY));
+      });
+
+      dpad.addEventListener('pointermove', (e) => {
+        if (activePointerId !== e.pointerId) return;
         e.preventDefault();
-        btn.classList.remove('active');
-        this.engine.setInput(dir, false);
+        setActiveDirection(resolveDpadDir(e.clientX, e.clientY));
+      });
+
+      const endDpad = (e) => {
+        if (activePointerId !== e.pointerId) return;
+        e.preventDefault();
+        activePointerId = null;
+        setActiveDirection(null);
+        try {
+          if (dpad.hasPointerCapture(e.pointerId)) {
+            dpad.releasePointerCapture(e.pointerId);
+          }
+        } catch (_) {}
       };
 
-      btn.addEventListener('pointerdown', press);
-      btn.addEventListener('pointerup', release);
-      btn.addEventListener('pointercancel', release);
-      btn.addEventListener('pointerleave', release);
-    });
+      dpad.addEventListener('pointerup', endDpad);
+      dpad.addEventListener('pointercancel', endDpad);
+      dpad.addEventListener('lostpointercapture', () => {
+        activePointerId = null;
+        setActiveDirection(null);
+      });
+    }
 
     const digLeft = document.getElementById('btn-dig-left');
     const digRight = document.getElementById('btn-dig-right');
@@ -1031,10 +1380,53 @@ class GameApp {
   }
 }
 
-// 註冊離線 Service Worker
+// 註冊離線 Service Worker 並處理可控新版本提示
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
+    let refreshing = false;
+    let pendingWorker = null;
+
+    const showUpdateToast = (worker) => {
+      if (!worker) return;
+      pendingWorker = worker;
+      const banner = document.getElementById('sw-update-banner');
+      banner?.classList.remove('hidden');
+    };
+
+    document.getElementById('btn-sw-reload')?.addEventListener('click', () => {
+      if (pendingWorker) {
+        pendingWorker.postMessage({ type: 'SKIP_WAITING' });
+      }
+    });
+
+    document.getElementById('btn-sw-dismiss')?.addEventListener('click', () => {
+      document.getElementById('sw-update-banner')?.classList.add('hidden');
+    });
+
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshing) return;
+      refreshing = true;
+      window.location.reload();
+    });
+
+    navigator.serviceWorker
+      .register('./sw.js')
+      .then((reg) => {
+        if (reg.waiting && navigator.serviceWorker.controller) {
+          showUpdateToast(reg.waiting);
+        }
+
+        reg.addEventListener('updatefound', () => {
+          const installing = reg.installing;
+          if (!installing) return;
+          installing.addEventListener('statechange', () => {
+            if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+              showUpdateToast(installing);
+            }
+          });
+        });
+      })
+      .catch(() => {});
   });
 }
 

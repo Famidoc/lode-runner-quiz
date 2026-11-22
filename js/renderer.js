@@ -18,14 +18,76 @@ export class MazeRenderer {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
+    this._dpr = 1;
+    this._brickSprite = null;
+    this._graniteSprite = null;
+    this._normalBackdrop = null;
+    this._tilePad = { left: 2, top: 7, right: 8, bottom: 2, w: TILE_SIZE + 10, h: TILE_SIZE + 9 };
     this._setupResolution();
   }
 
   _setupResolution() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this._dpr = dpr;
     this.canvas.width = CANVAS_WIDTH * dpr;
     this.canvas.height = CANVAS_HEIGHT * dpr;
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this._buildStaticCaches();
+  }
+
+  _buildStaticCaches() {
+    const dpr = this._dpr;
+    const depth = 6;
+    const { left, top, w, h } = this._tilePad;
+
+    const createOffscreen = (logicalW, logicalH) => {
+      const off = document.createElement('canvas');
+      off.width = Math.ceil(logicalW * dpr);
+      off.height = Math.ceil(logicalH * dpr);
+      const octx = off.getContext('2d');
+      octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      return { off, octx };
+    };
+
+    // 1. 快取一般模式靜態背景漸層與遺跡網格
+    const bg = createOffscreen(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const grad = bg.octx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
+    grad.addColorStop(0, '#09111f');
+    grad.addColorStop(0.6, '#0d1a2e');
+    grad.addColorStop(1, '#08101e');
+    bg.octx.fillStyle = grad;
+    bg.octx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    this._drawBgGrid(bg.octx);
+    this._normalBackdrop = bg.off;
+
+    // 2. 快取 2.5D 砂岩磚塊貼圖（含上方與右側斜面凸出）
+    const brick = createOffscreen(w, h);
+    this._drawBrickTile(brick.octx, left, top, depth);
+    this._brickSprite = brick.off;
+
+    // 3. 快取 2.5D 花崗岩貼圖
+    const granite = createOffscreen(w, h);
+    this._drawGraniteTile(granite.octx, left, top, depth);
+    this._graniteSprite = granite.off;
+  }
+
+  _drawBgGrid(ctx) {
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.045)';
+    ctx.lineWidth = 1;
+    for (let c = 0; c <= COLS; c++) {
+      const x = c * TILE_SIZE;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, CANVAS_HEIGHT);
+      ctx.stroke();
+    }
+    for (let r = 0; r <= ROWS; r++) {
+      const y = r * TILE_SIZE;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(CANVAS_WIDTH, y);
+      ctx.stroke();
+    }
   }
 
   render(engine, nowMs) {
@@ -47,35 +109,16 @@ export class MazeRenderer {
   }
 
   _drawBackdrop(ctx, engine, t) {
-    const grad = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
     if (engine.frenzyTimer > 0) {
+      const grad = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
       grad.addColorStop(0, '#1f0c18');
       grad.addColorStop(0.55, '#190f24');
       grad.addColorStop(1, '#120816');
-    } else {
-      grad.addColorStop(0, '#09111f');
-      grad.addColorStop(0.6, '#0d1a2e');
-      grad.addColorStop(1, '#08101e');
-    }
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-    // 微妙遺跡磚牆網格背景（營造景深層次）
-    ctx.strokeStyle = 'rgba(148, 163, 184, 0.045)';
-    ctx.lineWidth = 1;
-    for (let c = 0; c <= COLS; c++) {
-      const x = c * TILE_SIZE;
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, CANVAS_HEIGHT);
-      ctx.stroke();
-    }
-    for (let r = 0; r <= ROWS; r++) {
-      const y = r * TILE_SIZE;
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(CANVAS_WIDTH, y);
-      ctx.stroke();
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      this._drawBgGrid(ctx);
+    } else if (this._normalBackdrop) {
+      ctx.drawImage(this._normalBackdrop, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     }
 
     // 遠景環境光柱
@@ -97,6 +140,7 @@ export class MazeRenderer {
   _drawTiles(ctx, engine, t) {
     const grid = engine.grid;
     const depth = 6; // 2.5D 立體斜面厚度
+    const { left: padL, top: padT, w: spriteW, h: spriteH } = this._tilePad;
 
     // 第一輪：先畫 2.5D 頂部投影與右側陰影
     for (let r = 0; r < ROWS; r++) {
@@ -125,10 +169,18 @@ export class MazeRenderer {
 
         if (tile === TILE.BRICK) {
           if (!engine.dugHoles.has(`${c},${r}`)) {
-            this._drawBrickTile(ctx, x, y, depth);
+            if (this._brickSprite) {
+              ctx.drawImage(this._brickSprite, x - padL, y - padT, spriteW, spriteH);
+            } else {
+              this._drawBrickTile(ctx, x, y, depth);
+            }
           }
         } else if (tile === TILE.GRANITE) {
-          this._drawGraniteTile(ctx, x, y, depth);
+          if (this._graniteSprite) {
+            ctx.drawImage(this._graniteSprite, x - padL, y - padT, spriteW, spriteH);
+          } else {
+            this._drawGraniteTile(ctx, x, y, depth);
+          }
         } else if (tile === TILE.LADDER) {
           this._drawLadderTile(ctx, x, y, false, t);
         } else if (tile === TILE.ROPE) {

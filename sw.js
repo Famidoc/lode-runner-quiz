@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lr-quiz-v9';
+const CACHE_NAME = 'lr-quiz-v10';
 
 const APP_SHELL = [
   './',
@@ -6,6 +6,8 @@ const APP_SHELL = [
   './manifest.json',
   './css/style.css',
   './assets/icons/icon.svg',
+  './assets/icons/icon-192.png',
+  './assets/icons/apple-touch-icon.png',
   './js/config.js',
   './js/audio.js',
   './js/storage.js',
@@ -26,7 +28,7 @@ const APP_SHELL = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
   );
 });
 
@@ -41,21 +43,73 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
+async function networkFirst(request, { cacheKeyOverride = null, fallbackUrl = null } = {}) {
+  const cache = await caches.open(CACHE_NAME);
+  try {
+    const res = await fetch(request);
+    if (res && res.status === 200) {
+      await cache.put(cacheKeyOverride || request, res.clone());
+    }
+    return res;
+  } catch (_) {
+    const cached = await cache.match(request, { ignoreSearch: true });
+    if (cached) return cached;
+    if (fallbackUrl) {
+      const fb = await cache.match(fallbackUrl, { ignoreSearch: true });
+      if (fb) return fb;
+    }
+    throw _;
+  }
+}
+
+async function cacheFirst(request) {
+  const cache = await caches.open(CACHE_NAME);
+  const cached = await cache.match(request, { ignoreSearch: true });
+  if (cached) return cached;
+
+  const res = await fetch(request);
+  if (res && res.status === 200) {
+    await cache.put(request, res.clone());
+  }
+  return res;
+}
+
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+
   const url = new URL(event.request.url);
   if (url.origin !== location.origin) return;
 
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request).then((res) => {
-        if (res && res.status === 200) {
-          const clone = res.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-        }
-        return res;
-      });
-    })
-  );
+  // 僅攔截目前 PWA 作用域下的請求，避免影響同網域其他專案（如 /plants/、/sudoku/）
+  const scopePath = new URL(self.registration.scope).pathname;
+  if (!url.pathname.startsWith(scopePath)) return;
+
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      networkFirst(event.request, {
+        cacheKeyOverride: './index.html',
+        fallbackUrl: './index.html'
+      })
+    );
+    return;
+  }
+
+  const trimmedScope = scopePath.replace(/\/$/, '');
+  const isAppCodeOrData =
+    /\.(html|js|css|json)$/i.test(url.pathname) ||
+    url.pathname === scopePath ||
+    url.pathname === trimmedScope;
+
+  if (isAppCodeOrData) {
+    event.respondWith(networkFirst(event.request));
+    return;
+  }
+
+  event.respondWith(cacheFirst(event.request));
 });

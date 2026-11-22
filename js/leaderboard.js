@@ -244,9 +244,10 @@ class LeaderboardService {
     const connected = await this.init();
     if (connected && this._db && this._fs) {
       try {
-        const { collection, getDocs } = this._fs;
+        const { collection, getDocs, query, orderBy, limit } = this._fs;
         const colRef = collection(this._db, ...LEADERBOARD_CONFIG.collectionPath);
-        const snap = await getDocs(colRef);
+        const q = query(colRef, orderBy('score', 'desc'), limit(100));
+        const snap = await getDocs(q);
 
         const uniqueByName = new Map();
         snap.forEach((docSnap) => {

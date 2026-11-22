@@ -2,17 +2,52 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>知識尋寶《Lode Runner》— 捻花惹草 × 數獨 × 加減學學</title>
   <meta name="description" content="結合經典淘金者 Lode Runner 動作益智玩法與捻花惹草、數獨共享平台、加減學學三大知識題點的 PWA 網頁遊戲。" />
   <meta name="theme-color" content="#09111f" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="知識淘金者" />
+  <link rel="canonical" href="https://famidoc.github.io/lode-runner-quiz/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:locale" content="zh_TW" />
+  <meta property="og:site_name" content="知識尋寶《Lode Runner》" />
+  <meta property="og:title" content="知識尋寶《Lode Runner》— 捻花惹草 × 數獨 × 加減學學" />
+  <meta property="og:description" content="1980s 經典淘金者復刻！12 關迷宮閃避守衛、挖洞設陷阱，邊玩邊挑戰花草鑑別、數獨殘局與家醫衛教，支援手機離線 PWA 暢玩。" />
+  <meta property="og:url" content="https://famidoc.github.io/lode-runner-quiz/" />
+  <meta property="og:image" content="https://famidoc.github.io/lode-runner-quiz/assets/og-cover.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="知識尋寶《Lode Runner》遊戲封面" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="知識尋寶《Lode Runner》— 捻花惹草 × 數獨 × 加減學學" />
+  <meta name="twitter:description" content="1980s 經典淘金者復刻！12 關迷宮閃避守衛、挖洞設陷阱，邊玩邊挑戰花草鑑別、數獨殘局與家醫衛教，支援手機離線 PWA 暢玩。" />
+  <meta name="twitter:image" content="https://famidoc.github.io/lode-runner-quiz/assets/og-cover.png" />
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/svg+xml" href="./assets/icons/icon.svg" />
-  <link rel="apple-touch-icon" href="./assets/icons/icon.svg" />
+  <link rel="icon" type="image/png" sizes="192x192" href="./assets/icons/icon-192.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./assets/icons/apple-touch-icon.png" />
   <link rel="stylesheet" href="./css/style.css" />
 </head>
 <body>
   <div class="app-shell">
+    <!-- LINE / FB 社群內建瀏覽器提示條 -->
+    <div class="inapp-banner hidden" id="inapp-browser-banner" role="status">
+      <span class="inapp-banner-text">💡 偵測到社群內建瀏覽器，建議點右上／右下選單改用 <strong>Safari / Chrome</strong> 開啟，即可安裝 App 並完整保存紀錄。</span>
+      <button type="button" class="btn-banner-close" id="btn-close-inapp-banner" aria-label="關閉提示">✕</button>
+    </div>
+
+    <!-- PWA 新版更新提示橫幅 -->
+    <div class="sw-update-banner hidden" id="sw-update-banner" role="status" aria-live="polite">
+      <span>✨ 發現新版本，點擊立即套用最新關卡與優化</span>
+      <div class="sw-banner-actions">
+        <button type="button" class="btn-sw-reload" id="btn-sw-reload">立即更新</button>
+        <button type="button" class="btn-banner-close" id="btn-sw-dismiss" aria-label="稍後更新">✕</button>
+      </div>
+    </div>
+
     <!-- 頂部 HUD 與系統按鈕 -->
     <header class="hud-header">
       <div class="brand-cluster">
@@ -48,49 +83,51 @@
       <div class="hud-status" id="hud-portal">📦 寶箱 0 / 3</div>
     </section>
 
-    <!-- 主遊戲 2.5D Canvas 畫布區 -->
-    <main class="stage-wrap">
-      <canvas id="game-canvas" width="960" height="576" aria-label="知識尋寶遊戲畫面"></canvas>
-      <div class="ready-overlay hidden" id="ready-overlay" aria-live="polite">
-        <div class="ready-card">
-          <div class="ready-title" id="ready-title">第 1 關：準備開始</div>
-          <div class="ready-desc" id="ready-desc">觀察迷宮與守衛位置，準備好再出發！</div>
-          <button type="button" class="btn-ready-start" id="btn-ready-start">▶ 開始</button>
-          <div class="ready-hint">點擊按鈕，或按 Space / Enter 開始</div>
+    <!-- 主遊戲 2.5D Canvas 畫布區與觸控手把容器（支援手機橫向左右配置） -->
+    <div class="play-deck">
+      <main class="stage-wrap">
+        <canvas id="game-canvas" width="960" height="576" aria-label="知識尋寶遊戲畫面"></canvas>
+        <div class="ready-overlay hidden" id="ready-overlay" aria-live="polite">
+          <div class="ready-card">
+            <div class="ready-title" id="ready-title">第 1 關：準備開始</div>
+            <div class="ready-desc" id="ready-desc">觀察迷宮與守衛位置，準備好再出發！</div>
+            <button type="button" class="btn-ready-start" id="btn-ready-start">▶ 開始</button>
+            <div class="ready-hint">點擊按鈕，或按 Space / Enter 開始</div>
+          </div>
         </div>
-      </div>
-    </main>
+      </main>
 
-    <!-- 手機觸控虛擬搖桿與挖洞操作面板 -->
-    <section class="touch-controls" aria-label="虛擬觸控按鍵">
-      <div class="dpad" role="group" aria-label="方向控制">
-        <button type="button" class="dpad-btn up" data-move="up" aria-label="上爬">▲</button>
-        <button type="button" class="dpad-btn left" data-move="left" aria-label="向左">◀</button>
-        <button type="button" class="dpad-btn down" data-move="down" aria-label="向下">▼</button>
-        <button type="button" class="dpad-btn right" data-move="right" aria-label="向右">▶</button>
-      </div>
+      <!-- 手機觸控虛擬搖桿與挖洞操作面板 -->
+      <section class="touch-controls" aria-label="虛擬觸控按鍵">
+        <div class="dpad" role="group" aria-label="方向控制">
+          <button type="button" class="dpad-btn up" data-move="up" aria-label="上爬">▲</button>
+          <button type="button" class="dpad-btn left" data-move="left" aria-label="向左">◀</button>
+          <button type="button" class="dpad-btn down" data-move="down" aria-label="向下">▼</button>
+          <button type="button" class="dpad-btn right" data-move="right" aria-label="向右">▶</button>
+        </div>
 
-      <div class="kb-hint">
-        <span>⌨️ <strong>方向鍵 / WASD</strong> 移動與爬梯</span>
-        <span>⛏️ <strong>Z / Q</strong> 左挖洞・<strong>X / E</strong> 右挖洞</span>
-        <span>⏸ <strong>P</strong> 暫停・<strong>R</strong> 重試</span>
-      </div>
+        <div class="kb-hint">
+          <span>⌨️ <strong>方向鍵 / WASD</strong> 移動與爬梯</span>
+          <span>⛏️ <strong>Z / Q</strong> 左挖洞・<strong>X / E</strong> 右挖洞</span>
+          <span>⏸ <strong>P</strong> 暫停・<strong>R</strong> 重試</span>
+        </div>
 
-      <div class="dig-pad" role="group" aria-label="左右挖洞">
-        <button type="button" class="dig-btn left-dig" id="btn-dig-left">
-          <span class="dig-icon">↙️</span>
-          <span>左挖 <small>(Z)</small></span>
-        </button>
-        <button type="button" class="dig-btn right-dig" id="btn-dig-right">
-          <span class="dig-icon">↘️</span>
-          <span>右挖 <small>(X)</small></span>
-        </button>
-      </div>
-    </section>
+        <div class="dig-pad" role="group" aria-label="左右挖洞">
+          <button type="button" class="dig-btn left-dig" id="btn-dig-left">
+            <span class="dig-icon">↙️</span>
+            <span>左挖 <small>(Z)</small></span>
+          </button>
+          <button type="button" class="dig-btn right-dig" id="btn-dig-right">
+            <span class="dig-icon">↘️</span>
+            <span>右挖 <small>(X)</small></span>
+          </button>
+        </div>
+      </section>
+    </div>
 
     <!-- 頁尾創作者署名與生態串連 -->
     <footer class="app-footer">
-      <div class="footer-credit">@2026 by Famidoc Chang &amp; Antigravity</div>
+      <div class="footer-credit">@2026 by Famidoc Chang &amp; Antigravity <span class="app-version" id="app-version"></span></div>
       <nav class="footer-links" aria-label="相關專案平台">
         <a href="https://famidoc.github.io/plants/" target="_blank" rel="noopener">🌿 捻花惹草圖鑑</a>
         <span>·</span>
@@ -185,6 +222,7 @@
       <div class="modal-btn-row">
         <button type="button" class="btn-primary" id="btn-next-level">▶ 進入下一關</button>
         <button type="button" class="btn-secondary" id="btn-replay-level">🔄 重玩本關</button>
+        <button type="button" class="btn-secondary" id="btn-clear-share">📤 分享戰績</button>
         <button type="button" class="btn-exit" id="btn-clear-exit">🚪 離開遊戲</button>
       </div>
     </div>
@@ -212,6 +250,7 @@
       <div class="modal-btn-row">
         <button type="button" class="btn-primary" id="btn-gameover-retry">🔄 再戰本關</button>
         <button type="button" class="btn-secondary" id="btn-gameover-levels">🗺️ 選擇關卡</button>
+        <button type="button" class="btn-secondary" id="btn-gameover-share">📤 分享戰績</button>
         <button type="button" class="btn-exit" id="btn-gameover-exit">🚪 離開遊戲</button>
       </div>
     </div>
@@ -251,12 +290,25 @@
       </div>
       <p class="qr-url" id="qr-url-text"></p>
       <div class="modal-btn-row">
-        <button type="button" class="btn-primary" id="btn-qr-copy">📋 複製連結</button>
+        <button type="button" class="btn-primary" id="btn-qr-share">📤 分享給朋友</button>
+        <button type="button" class="btn-secondary" id="btn-qr-copy">📋 複製連結</button>
         <button type="button" class="btn-secondary hidden" id="btn-pwa-install-qr">⬇️ 直接安裝 App</button>
       </div>
       <div class="qr-install-tips">
         <div><strong>🍎 iPhone / iPad (Safari)：</strong>點選下方「分享 ⬆️」→「加入主畫面」</div>
         <div><strong>🤖 Android (Chrome)：</strong>點選右上「⋮ 選單」→「安裝應用程式 / 加到主畫面」</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 8. 二次確認彈窗（例如防誤觸重置連續高分） -->
+  <div class="modal-backdrop hidden" id="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+    <div class="modal-card confirm-card">
+      <h2 id="confirm-title">⚠️ 確認操作</h2>
+      <p class="confirm-msg" id="confirm-message"></p>
+      <div class="modal-btn-row">
+        <button type="button" class="btn-secondary" id="btn-confirm-cancel">取消</button>
+        <button type="button" class="btn-danger" id="btn-confirm-ok">確定重試</button>
       </div>
     </div>
   </div>

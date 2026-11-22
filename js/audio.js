@@ -6,6 +6,7 @@ class SoundEngine {
   constructor() {
     this.ctx = null;
     this.muted = false;
+    this.hasUserGesture = false;
   }
 
   setMuted(muted) {
@@ -13,13 +14,30 @@ class SoundEngine {
   }
 
   unlock() {
+    this.hasUserGesture = true;
     if (!this.ctx) {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (!AudioCtx) return;
       this.ctx = new AudioCtx();
     }
-    if (this.ctx.state === 'suspended') {
+    if (this.ctx.state !== 'running') {
       this.ctx.resume().catch(() => {});
+    }
+  }
+
+  vibrate(pattern) {
+    if (
+      this.muted ||
+      !this.hasUserGesture ||
+      typeof navigator === 'undefined' ||
+      typeof navigator.vibrate !== 'function'
+    ) {
+      return;
+    }
+    try {
+      navigator.vibrate(pattern);
+    } catch (_) {
+      // 忽略不支援震動或受限裝置
     }
   }
 
@@ -57,6 +75,7 @@ class SoundEngine {
     switch (name) {
       case 'dig':
         this.playTone({ freq: 520, endFreq: 160, type: 'sawtooth', duration: 0.14, gain: 0.08 });
+        this.vibrate(12);
         break;
       case 'step':
         this.playTone({ freq: 180, endFreq: 120, type: 'triangle', duration: 0.035, gain: 0.03 });
@@ -70,17 +89,21 @@ class SoundEngine {
         this.playTone({ freq: 587, duration: 0.08, type: 'triangle', gain: 0.1, delay: 0 });
         this.playTone({ freq: 784, duration: 0.09, type: 'triangle', gain: 0.1, delay: 0.08 });
         this.playTone({ freq: 1046, duration: 0.2, type: 'triangle', gain: 0.1, delay: 0.17 });
+        this.vibrate([15, 30, 15]);
         break;
       case 'wrong':
         this.playTone({ freq: 260, endFreq: 130, type: 'sawtooth', duration: 0.18, gain: 0.09, delay: 0 });
         this.playTone({ freq: 190, endFreq: 95, type: 'sawtooth', duration: 0.24, gain: 0.09, delay: 0.16 });
+        this.vibrate([35, 25, 35]);
         break;
       case 'trap':
         this.playTone({ freq: 420, endFreq: 180, type: 'square', duration: 0.16, gain: 0.07 });
+        this.vibrate(18);
         break;
       case 'crush':
         this.playTone({ freq: 240, endFreq: 680, type: 'square', duration: 0.12, gain: 0.08, delay: 0 });
         this.playTone({ freq: 680, endFreq: 920, type: 'triangle', duration: 0.14, gain: 0.08, delay: 0.1 });
+        this.vibrate(22);
         break;
       case 'exitReveal':
         [523, 659, 784, 1046, 1318].forEach((f, i) => {
@@ -89,11 +112,13 @@ class SoundEngine {
         break;
       case 'hurt':
         this.playTone({ freq: 380, endFreq: 90, type: 'sawtooth', duration: 0.35, gain: 0.11 });
+        this.vibrate(55);
         break;
       case 'levelClear':
         [523, 659, 784, 659, 1046].forEach((f, i) => {
           this.playTone({ freq: f, duration: i === 4 ? 0.35 : 0.11, type: 'square', gain: 0.08, delay: i * 0.1 });
         });
+        this.vibrate([18, 35, 18, 35, 35]);
         break;
       case 'gameOver':
         [392, 349, 311, 261].forEach((f, i) => {

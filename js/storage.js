@@ -36,6 +36,17 @@ const DEFAULT_SAVE = {
   }
 };
 
+function cloneDefaultSave() {
+  return {
+    ...DEFAULT_SAVE,
+    levelRecords: {},
+    localLeaderboard: [],
+    plantWrongPool: [],
+    medicalWrongPool: [],
+    totalSolved: { ...DEFAULT_SAVE.totalSolved }
+  };
+}
+
 function sanitizeName(name) {
   return String(name ?? '').trim().slice(0, 16);
 }
@@ -108,7 +119,7 @@ function backfillLegacyLevelScores(save) {
 function readRawSave() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return structuredClone(DEFAULT_SAVE);
+    if (!raw) return cloneDefaultSave();
     const parsed = JSON.parse(raw);
     const normalized = {
       ...DEFAULT_SAVE,
@@ -126,7 +137,7 @@ function readRawSave() {
     }
     return normalized;
   } catch (_) {
-    return structuredClone(DEFAULT_SAVE);
+    return cloneDefaultSave();
   }
 }
 
